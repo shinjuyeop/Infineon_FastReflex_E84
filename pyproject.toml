@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infineon-fastreflex-e84"
+version = "0.0.0"
+description = "Deployment workspace for FastReflex on PSoC Edge E84"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools]
+packages = []

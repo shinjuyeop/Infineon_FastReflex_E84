@@ -1,0 +1,32 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Generated deployment outputs
+model/quantized/*
+!model/quantized/.gitkeep
+model/vela/*
+!model/vela/.gitkeep
+firmware/build/
+firmware/mtb_shared/
+reports/generated/
+tmp/
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
