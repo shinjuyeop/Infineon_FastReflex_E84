@@ -8,8 +8,9 @@ Reviewed Frozen Float Model + Contract
   -> M2 Float export parity against historical batch-N golden          [FAIL]
   -> M2 INT8 Ethos-U55 operator probe                                  [PASS]
   -> M2.1 Research-owned batch-1 Float contract + revalidation         [PASS]
-  -> M3 INT8 quantization and parity                                   [NEXT]
-  -> Production Vela / Ethos-U55 compilation                          [NOT STARTED]
+  -> M3 INT8 quantization and parity                                   [FAIL]
+  -> M3 formal-model Vela / Ethos-U55 mapping                         [PASS, GENERIC]
+  -> Target-specific Vela / Ethos-U55 compilation                     [NOT STARTED]
   -> Firmware integration                                             [NOT STARTED]
   -> KIT_PSE84_AI execution                                           [NOT STARTED]
   -> HIL and runtime latency/RAM/Flash validation                      [NOT STARTED]
@@ -17,7 +18,7 @@ Reviewed Frozen Float Model + Contract
 
 ## Completed gate: M1
 
-`REFERENCE_MODEL_HANDOFF_AND_BATCH_ONE_HOST_FLOAT_PARITY` accepts the exact non-release engineering reference through [`configs/deployment/reference_model.yaml`](../configs/deployment/reference_model.yaml). The validator checks the outer manifest pin, all 16 payload hashes, provenance, scientific/non-release status, sensor schema, feature order, normalization, architecture, ensemble, and Research-owned numerical/decision contract before loading model weights.
+`REFERENCE_MODEL_HANDOFF_AND_BATCH_ONE_HOST_FLOAT_PARITY` accepts the exact non-release engineering reference through [`configs/deployment/reference_model.yaml`](../configs/deployment/reference_model.yaml). The validator checks the outer manifest pin, all 18 payload hashes, provenance, scientific/non-release status, sensor schema, feature order, normalization, architecture, ensemble, Research-owned numerical/decision contract, and TRAIN-only calibration artifact before loading model weights.
 
 The E84 host implementation is independent of the Research Python package. It invokes every member once per endpoint with static shape `[1,20,80]` and a fresh zero hidden state. It reproduces the batch-1 golden bit-exactly and requires exact endpoint/decision parity. Run it with:
 
@@ -41,6 +42,14 @@ Research preserved the historical batch-121 golden and added a deployment golden
 
 E84 pinned the updated Research manifest and contract checksum. Independent Host batch-1 parity is bit-exact. The selected Float TFLite passes with maximum absolute errors `2.384186e-6`, `1.072884e-6`, and `3.470729e-7` at logit, member-probability, and ensemble layers respectively; every discrete output is exact.
 
+## M3 result
+
+`INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL`
+
+Research froze 2,597 representative windows from all 442 exact effective-TRAIN runs. Full-range min/max calibration fails badly because rare normalized tails set input scale to `1.3921`; the selected model-blind robust range uses the TRAIN absolute-value p99 bound `±4.1328436` and input scale `0.03241446`. NPU-side quantized softmax and host-side Float32 softmax produce nearly the same recurrent excursions, demonstrating that the output boundary is not the cause.
+
+All three selected models are byte-deterministic and retain complete formal U55 mapping (`0 CPU / 192 NPU` each). On the frozen golden, all 22 threshold crossings, counters, three onset endpoints and final decisions are exact. Nevertheless, two members have maximum probability errors near `0.9`; ensemble maximum/p95 errors are `0.3334/0.1884` with `-0.02093` bias. These exceed the separately defined INT8 contract, so exact discrete parity on one trace is insufficient for acceptance.
+
 ## Next gate
 
-Proceed to `INT8_QUANTIZATION_AND_PARITY`. M3 inherits the canonical batch-1 Float reference, exact threshold/persistence/final-decision semantics, and full provenance. It must measure and justify INT8-specific continuous acceptance rather than silently reusing the Float tolerances. Firmware, board execution, and HIL remain not started.
+M4 is not authorized. Resolve the frozen GRU's post-training INT8 recurrent numerical instability without changing threshold, persistence, member count, causal preprocessing, or state semantics. Any Research-side retraining/QAT or new artifact requires a separate reviewed scope. Firmware, board execution, and HIL remain not started.

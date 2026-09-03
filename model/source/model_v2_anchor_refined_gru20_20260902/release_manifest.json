@@ -1,7 +1,9 @@
 {
-  "file_count": 16,
+  "file_count": 18,
   "files": {
-    "float_numerical_contract.json": "e8e3bfd9d1fe6fe546fd5e9509654a37033126c98a5c445a5a16700892cdec9a",
+    "calibration_inputs/int8_representative.npz": "cd82304d34b2cdc60a0feb3de3e84ca7bc7f45e73223e2df389bd695cddbab5f",
+    "calibration_manifest.json": "075bd229f6fb3031fe1917357beb9c414943435168aae7592c369f524763c32a",
+    "float_numerical_contract.json": "c3e90b4615d52804bee20ac6ef3728fc715d5629c8fc23e39f87640e908f423c",
     "golden_inputs/decision_probe.npz": "fe9a52f5706e7d8bda246d68196b7de1d363ed724adbc611538a57ec4fe33a4c",
     "golden_inputs/runtime_chain.npz": "2bf3b72053a3b28d065e4504410729da0c60f079dc8f8cef230acd9827357f2d",
     "golden_manifest.json": "f1cd2b4ab50a318e4decd98592d15d01a7ebc4cd740c7602be9edcc4f5568f19",
@@ -10,7 +12,7 @@
     "golden_outputs/runtime_chain.npz": "62c431297aa9e5cf4c2d4dbad51ed496602c8eb92662bb8e878634ae06e6f903",
     "label_map.json": "46cb4e02897c86cf35465592c4f9d7c90400c9bfa8a9068980eecb2f7ec9f0c6",
     "metrics.json": "ee21e82b2820b0d242e3263708f839ead76878bb0001a85dffa8232251a1d833",
-    "model_manifest.json": "1f427ec46b34b15f841b34be107f45618a713b8edf24ea102ee3e44c75c0b7e7",
+    "model_manifest.json": "86304094bd52fa29c5d0cbd8f3e98d553913ccab562989510d8f6425ecc5df4c",
     "models/member_seed20260828.pt": "7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9",
     "models/member_seed20260829.pt": "3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39",
     "models/member_seed20260830.pt": "fe96dfeb8461871044de0f8672190680ce46164a1c28efbe6738d22f9d439bbd",

@@ -13,13 +13,18 @@ The M1 suite protects:
 - exact threshold, consecutive-count, onset and final decision parity;
 - rejection of raw checksum drift and semantically changed feature order even if an attacker updates the inner manifest.
 
-The M2 suite additionally protects:
+The M2/M3 suite additionally protects:
 
 - three-member static Float32 TFLite export and exact graph inventory;
 - all three Float exports passing the Research-owned numerical contract;
 - exact threshold, persistence, onset, and final-decision parity;
 - Float `100% CPU` and minimum INT8+softmax `100% NPU` Vela placement;
-- the boundary that INT8 parity, firmware, and board execution are not complete.
+- the 442-run/2,597-window TRAIN-only calibration identity and robust range;
+- three formal INT8 members, fixed ordering, IO parameters and byte determinism;
+- empirical probability distributions and fail-closed INT8 numerical gates;
+- exact threshold/count/persistence/onset/final-decision parity;
+- both Vela memory modes retaining `0 CPU / 192 NPU` for every formal member;
+- the boundary that M4, firmware, and board execution are not authorized.
 
 Run:
 

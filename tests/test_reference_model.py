@@ -35,7 +35,7 @@ def test_handoff_and_all_host_float_layers_pass() -> None:
         result["status"]
         == "REFERENCE_MODEL_HANDOFF_AND_BATCH_ONE_HOST_FLOAT_PARITY_PASS"
     )
-    assert result["contract"]["files_verified"] == 16
+    assert result["contract"]["files_verified"] == 18
     assert result["parity"]["status"] == "PASS"
     assert result["parity"]["canonical_execution_shape"] == [1, 20, 80]
     assert result["parity"]["continuous_parity"]["member_logits"]["absolute"] == 4e-6

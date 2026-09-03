@@ -26,6 +26,8 @@ from .reference_runtime import (
 DEFAULT_CONFIG = Path("configs/deployment/reference_model.yaml")
 REQUIRED_RELEASE_FILES = frozenset(
     {
+        "calibration_inputs/int8_representative.npz",
+        "calibration_manifest.json",
         "golden_inputs/decision_probe.npz",
         "golden_inputs/runtime_chain.npz",
         "golden_manifest.json",
@@ -128,6 +130,7 @@ def validate_reference_bundle(
     metrics = _load_json(bundle / "metrics.json")
     golden = _load_json(bundle / "golden_manifest.json")
     float_contract = _load_json(bundle / "float_numerical_contract.json")
+    calibration = _load_json(bundle / "calibration_manifest.json")
     provenance = model["provenance"]
     scientific = model["scientific_status"]
     _require(model.get("candidate_id") == accepted["release_id"], "candidate changed")
@@ -404,6 +407,37 @@ def validate_reference_bundle(
         and sensitivity.get("margin_to_permitted_error_ratio", 0.0) > 400.0,
         "Float threshold sensitivity evidence changed",
     )
+    calibration_artifact = calibration.get("artifact", {})
+    _require(
+        calibration.get("schema_version") == 1
+        and calibration.get("purpose")
+        == "formal_int8_representative_calibration_only"
+        and calibration.get("candidate_id") == accepted["release_id"]
+        and calibration.get("scientific_evidence") is False
+        and calibration.get("protected_holdout_access") is False
+        and calibration.get("selection", {}).get("run_count") == 442
+        and calibration.get("selection", {}).get("window_count") == 2597
+        and calibration.get("selection", {}).get("model_output_used") is False
+        and calibration.get("selection", {}).get("quantization_result_used") is False
+        and {row.get("split") for row in calibration.get("source_splits", [])}
+        == {"train", "V2_TRAIN"}
+        and calibration_artifact.get("path")
+        == "calibration_inputs/int8_representative.npz"
+        and calibration_artifact.get("sha256")
+        == accepted["int8_calibration_sha256"],
+        "INT8 calibration provenance changed",
+    )
+    with np.load(
+        bundle / str(calibration_artifact["path"]), allow_pickle=False
+    ) as payload:
+        _require(
+            set(payload.files)
+            == {"dataset_index", "endpoint_sample", "model_windows", "run_index"}
+            and payload["model_windows"].shape == (2597, 20, 80)
+            and payload["model_windows"].dtype == np.float32
+            and np.all(np.isfinite(payload["model_windows"])),
+            "INT8 calibration tensor contract changed",
+        )
     return bundle, config, model, float_contract
 
 

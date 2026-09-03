@@ -7,3 +7,5 @@ M1 reviewed result는 [`reference_model_handoff.md`](reference_model_handoff.md)
 M2 mixed verdict와 target-operator evidence는 [`export_target_operator_feasibility.md`](export_target_operator_feasibility.md)에 있다. 재생성 가능한 TFLite, Vela output, CSV와 full log는 각각 `model/converted`, `model/quantized`, `model/vela`, `reports/generated`의 ignored 경계에 둔다.
 
 M2.1 Research-owned batch-1 contract와 E84 revalidation 결과는 [`float_numerical_contract_resolution.md`](float_numerical_contract_resolution.md)에 있다.
+
+M3 TRAIN-only calibration, 세 member INT8 parity, threshold sensitivity와 formal-model Vela 결과는 [`int8_quantization_and_parity.md`](int8_quantization_and_parity.md)에 있다.

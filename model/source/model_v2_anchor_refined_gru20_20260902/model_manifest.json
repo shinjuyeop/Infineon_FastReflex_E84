@@ -67,7 +67,7 @@
     "candidate_record_commit": "8a4970cad8778e100751d4f6a8ae4f15b5eb4c03",
     "candidate_source_commit": "9bef402e900523e4b5477bf47cd91c0adddf9b2a",
     "packaged_date": "2026-09-03",
-    "packaging_source_commit": "9b1f008c0a665dd02f2243f92203e66406fcaeb8",
+    "packaging_source_commit": "ff9873da5342091783bcd0b96307d4f217f083a0",
     "scientific_verdict_commit": "7fdb61940a6fc60edbd0b2ad5e0726b5eb07d3b6",
     "source_repository": "https://github.com/shinjuyeop/Infineon_FastReflex",
     "timezone": "Asia/Seoul"

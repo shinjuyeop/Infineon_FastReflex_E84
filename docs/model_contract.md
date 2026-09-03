@@ -2,7 +2,7 @@
 
 ## Accepted reference identity
 
-This is the reviewed contract through milestone `FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLUTION`.
+This is the reviewed handoff plus the completed M3 characterization.
 
 | Field | Frozen value |
 |---|---|
@@ -13,16 +13,17 @@ This is the reviewed contract through milestone `FLOAT_EXPORT_NUMERICAL_CONTRACT
 | Candidate source commit | `9bef402e900523e4b5477bf47cd91c0adddf9b2a` |
 | Candidate record commit | `8a4970cad8778e100751d4f6a8ae4f15b5eb4c03` |
 | Scientific verdict commit | `7fdb61940a6fc60edbd0b2ad5e0726b5eb07d3b6` |
-| Packaging/contract source commit | `9b1f008c0a665dd02f2243f92203e66406fcaeb8` |
-| Reviewed Research release commit | `cb1b83371c3ff8be26b44e85fb709f6449c7e1f7` |
-| Release manifest SHA-256 | `6451b732db9c73bc84f017385339c9a93e1ce35ca69de3dc1542748acf0569ed` |
-| Float contract SHA-256 | `e8e3bfd9d1fe6fe546fd5e9509654a37033126c98a5c445a5a16700892cdec9a` |
+| Packaging/contract source commit | `ff9873da5342091783bcd0b96307d4f217f083a0` |
+| Reviewed Research release commit | `314ded6aa3fdfe8d661d1cc670f1b9f3936084fb` |
+| Release manifest SHA-256 | `d5d4e7225a35d7547e373b0ac62dbaf552d45c1a3290f214882a032355589dc7` |
+| Float contract SHA-256 | `c3e90b4615d52804bee20ac6ef3728fc715d5629c8fc23e39f87640e908f423c` |
+| INT8 calibration SHA-256 | `cd82304d34b2cdc60a0feb3de3e84ca7bc7f45e73223e2df389bd695cddbab5f` |
 
 The accepted bundle is [`model/source/model_v2_anchor_refined_gru20_20260902`](../model/source/model_v2_anchor_refined_gru20_20260902). [`configs/deployment/reference_model.yaml`](../configs/deployment/reference_model.yaml) pins its identity independently of the bundle.
 
 ## Bundle and integrity
 
-`release_manifest.json` fixes the complete 16-file payload. Acceptance fails on a missing file, extra file, path traversal, manifest mismatch, or content checksum mismatch before a checkpoint is opened.
+`release_manifest.json` fixes the complete 18-file payload. Acceptance fails on a missing file, extra file, path traversal, manifest mismatch, or content checksum mismatch before a checkpoint is opened.
 
 ```text
 model_manifest.json
@@ -36,6 +37,8 @@ models/member_seed20260829.pt
 models/member_seed20260830.pt
 golden_manifest.json
 float_numerical_contract.json
+calibration_manifest.json
+calibration_inputs/int8_representative.npz
 golden_inputs/runtime_chain.npz
 golden_outputs/runtime_chain.npz
 golden_outputs/deployment_runtime_chain.npz
@@ -43,6 +46,12 @@ golden_inputs/decision_probe.npz
 golden_outputs/decision_probe.npz
 release_manifest.json       # deployment config pins this outer manifest
 ```
+
+## INT8 calibration handoff
+
+The Research-owned calibration artifact contains 2,597 finite `[20,80] float32` tensors from the exact effective TRAIN: 152 Unified `train` runs and 290 valid Model-V2 `V2_TRAIN` runs. Five runtime-uniform endpoints per run are combined with valid physical precursor, Slip, and Support anchors and deduplicated. Selection uses no model output or quantization result. Every source run/file hash and endpoint is recorded. Validation/HOLDOUT/evaluation payloads are excluded, and the artifact is not scientific evidence.
+
+The raw artifact retains normalized TRAIN tails (`min=-40.3635`, `max=314.6293`). Deployment's selected calibration range clips representative values symmetrically to the TRAIN absolute-value p99 `±4.132843623161313`; runtime preprocessing remains unchanged and INT8 input saturation is the ordinary quantizer clamp.
 
 The frozen model inputs have these checksums:
 
@@ -161,4 +170,4 @@ The immutable scientific verdict is `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORT
 | Generalization validation | 25/26 | 11/12 | 14/14 | 10/10 | 1/26 |
 | Generalization HOLDOUT | 25/28 | 11/14 | 14/14 | 5/8 | 2/28 |
 
-This handoff proves only exact frozen-artifact receipt and Host Float runtime reproduction. It does not establish scientific support, real-robot support, production readiness, safety certification, final sensor architecture, INT8 parity, operator feasibility, Vela compatibility, firmware execution, timing, RAM, Flash, or HIL behavior.
+M3 proves deterministic conversion, exact decision parity on the canonical golden, and formal-model generic Vela mapping. It does not accept continuous INT8 probability parity: observed recurrent excursions violate the Deployment-owned contract, so M4 is not authorized. The handoff still does not establish scientific support, real-robot support, production readiness, safety certification, final sensor architecture, firmware execution, board timing/RAM/Flash, or HIL behavior.

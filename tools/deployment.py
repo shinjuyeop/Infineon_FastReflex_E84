@@ -39,6 +39,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="override generated output root (primarily for isolated verification)",
     )
+    quantize = subparsers.add_parser(
+        "evaluate-int8",
+        help="quantize all members and evaluate formal INT8 parity and Vela mapping",
+    )
+    quantize.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
+    quantize.add_argument(
+        "--output-root",
+        type=Path,
+        help="override generated output root (primarily for isolated verification)",
+    )
     return parser
 
 
@@ -63,6 +77,20 @@ def main() -> int:
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result["float_export"]["parity"]["status"] == "PASS" else 2
+        if args.command == "evaluate-int8":
+            from fastreflex_e84.conversion import (
+                evaluate_int8_quantization,
+            )
+
+            result = evaluate_int8_quantization(
+                REPOSITORY_ROOT, args.config, args.output_root
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return (
+                0
+                if result["status"] == "INT8_QUANTIZATION_AND_PARITY_PASS"
+                else 2
+            )
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))
     raise AssertionError("unreachable command")

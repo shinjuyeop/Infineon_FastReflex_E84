@@ -4,10 +4,10 @@ bundle_path: model/source/model_v2_anchor_refined_gru20_20260902
 
 accepted_identity:
   release_id: model_v2_anchor_refined_gru20_20260902
-  release_manifest_sha256: 6451b732db9c73bc84f017385339c9a93e1ce35ca69de3dc1542748acf0569ed
+  release_manifest_sha256: d5d4e7225a35d7547e373b0ac62dbaf552d45c1a3290f214882a032355589dc7
   research_repository: https://github.com/shinjuyeop/Infineon_FastReflex
-  research_release_commit: cb1b83371c3ff8be26b44e85fb709f6449c7e1f7
-  packaging_source_commit: 9b1f008c0a665dd02f2243f92203e66406fcaeb8
+  research_release_commit: 314ded6aa3fdfe8d661d1cc670f1b9f3936084fb
+  packaging_source_commit: ff9873da5342091783bcd0b96307d4f217f083a0
   candidate_source_commit: 9bef402e900523e4b5477bf47cd91c0adddf9b2a
   candidate_record_commit: 8a4970cad8778e100751d4f6a8ae4f15b5eb4c03
   scientific_verdict_commit: 7fdb61940a6fc60edbd0b2ad5e0726b5eb07d3b6
@@ -18,7 +18,8 @@ accepted_identity:
   architecture_sha256: ae4753699399aa7e4a93639935e085156ef28ed100a77058d7308eb1549aa897
   feature_schema_sha256: fe5b6c1c5eca8207a01c62e156f1fe843f95f0c5001d179a12c4b2b16ddf8adb
   normalizer_sha256: e0d796e8840e0cd38bc7d0ed222b668187a8a661748cf8506d4141657f88e92a
-  float_numerical_contract_sha256: e8e3bfd9d1fe6fe546fd5e9509654a37033126c98a5c445a5a16700892cdec9a
+  float_numerical_contract_sha256: c3e90b4615d52804bee20ac6ef3728fc715d5629c8fc23e39f87640e908f423c
+  int8_calibration_sha256: cd82304d34b2cdc60a0feb3de3e84ca7bc7f45e73223e2df389bd695cddbab5f
   checkpoint_sha256:
     - 7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9
     - 3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39
@@ -45,6 +46,60 @@ export_feasibility:
     SUB: 20
     TANH: 20
   expected_int8_probe_operators:
+    ADD: 80
+    FULLY_CONNECTED: 21
+    LOGISTIC: 40
+    MUL: 40
+    SOFTMAX: 1
+    SPLIT: 20
+    STRIDED_SLICE: 60
+    SUB: 20
+    TANH: 20
+
+formal_int8:
+  member_seeds: [20260828, 20260829, 20260830]
+  selected_directory: model/quantized/formal
+  alternative_directory: model/quantized/alternatives
+  vela_directory: model/vela/formal_int8
+  result_path: reports/generated/int8_quantization_parity.json
+  threshold: 0.99
+  persistence_samples: 5
+  calibration_policy:
+    symmetric_absolute_percentile: 99.0
+    rationale: >-
+      A per-tensor INT8 input cannot spend nearly all codes on the rare extreme
+      tail retained in the Research artifact. A symmetric TRAIN-only 99th
+      absolute-percentile range is a standard model-blind robust range: it
+      preserves sign symmetry, covers 99 percent of representative elements,
+      and its numeric bound depends only on the frozen TRAIN values rather than
+      golden outputs or member results.
+  numerical_contract:
+    input_saturation_fraction_maximum: 0.0002
+    member_probability_median_absolute_error_maximum: 0.00390625
+    member_probability_maximum_absolute_error_maximum: 0.10
+    ensemble_probability_p95_absolute_error_maximum: 0.05
+    ensemble_probability_maximum_absolute_error_maximum: 0.10
+    ensemble_probability_absolute_bias_maximum: 0.01
+    rationale: >-
+      Median member error is limited to one INT8 softmax output quantum. The
+      broader gates independently reject recurrent excursions above ten
+      probability points, a p95 ensemble error above five points, and systematic
+      ensemble bias above one point. These round semantic budgets are stricter
+      than the observed unstable members, are not inherited from Float, and do
+      not waive the separate exact decision requirement.
+  target:
+    accelerator_config: ethos-u55-128
+    generic_system_config: Ethos_U55_High_End_Embedded
+  expected_logit_operators:
+    ADD: 80
+    FULLY_CONNECTED: 21
+    LOGISTIC: 40
+    MUL: 40
+    SPLIT: 20
+    STRIDED_SLICE: 60
+    SUB: 20
+    TANH: 20
+  expected_probability_operators:
     ADD: 80
     FULLY_CONNECTED: 21
     LOGISTIC: 40

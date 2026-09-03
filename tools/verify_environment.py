@@ -16,7 +16,7 @@ import yaml
 
 
 MINIMUM_PYTHON = (3, 10)
-M2_PACKAGES = ("tensorflow", "ai-edge-litert", "ethos-u-vela")
+CONVERSION_PACKAGES = ("tensorflow", "ai-edge-litert", "ethos-u-vela")
 
 
 def _package_version(name: str) -> str | None:
@@ -44,7 +44,7 @@ def main() -> int:
     current = sys.version_info[:2]
     print(f"Python: {platform.python_version()}")
     print(f"Platform: {platform.platform()}")
-    print("Project status: FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED")
+    print("Project status: INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL")
 
     if current < MINIMUM_PYTHON:
         print("Result: Python 3.10 or newer is required.")
@@ -54,7 +54,7 @@ def main() -> int:
     print(f"PyYAML: {yaml.__version__}")
     print(f"PyTorch: {torch.__version__}")
     missing: list[str] = []
-    for package in M2_PACKAGES:
+    for package in CONVERSION_PACKAGES:
         version = _package_version(package)
         print(f"{package}: {version or 'NOT INSTALLED'}")
         if version is None:
@@ -70,9 +70,9 @@ def main() -> int:
         missing.append("vela executable")
     print(f"KitProg3 USB devices (read-only enumeration): {_kitprog_count()}")
     if missing:
-        print(f"Result: M2 environment incomplete: {', '.join(missing)}")
+        print(f"Result: conversion environment incomplete: {', '.join(missing)}")
         return 1
-    print("Result: M2 export/operator-analysis environment available.")
+    print("Result: M2/M3 conversion and Vela environment available.")
     print("Infineon ML Pack and board execution are not validated by this check.")
     return 0
 

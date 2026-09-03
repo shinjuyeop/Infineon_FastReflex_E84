@@ -22,6 +22,7 @@ from .reference_runtime import MEMBER_SEEDS, apply_decision, load_ensemble
 
 M2_VERDICT = "FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS"
 M21_VERDICT = "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
+M3_VERDICT = "INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL"
 STATE_KEYS = (
     "gru.weight_ih_l0",
     "gru.weight_hh_l0",
@@ -158,8 +159,18 @@ def _int8_operator_probe(
     This artifact is an operator probe, not an INT8 parity or accuracy result.
     Softmax is included so that M2 does not infer its mapping from documentation.
     """
+    return _int8_tflite(state, representative_windows, include_softmax=True)
+
+
+def _int8_tflite(
+    state: dict[str, np.ndarray],
+    representative_windows: np.ndarray,
+    *,
+    include_softmax: bool,
+) -> bytes:
+    """Fully quantize one frozen member using explicit INT8 graph IO."""
     tf = _tensorflow()
-    module, concrete = _concrete_gru(state, include_softmax=True)
+    module, concrete = _concrete_gru(state, include_softmax=include_softmax)
 
     def representative_dataset() -> Any:
         for window in representative_windows:
@@ -212,6 +223,142 @@ def inspect_tflite(model_path: Path) -> dict[str, object]:
         "operator_count": len(operations),
         "operators": dict(sorted(Counter(operations).items())),
         "static_shapes": True,
+    }
+
+
+def _quantization_summary(model_path: Path) -> dict[str, object]:
+    """Summarize weight, bias, activation, and recurrent quantization behavior."""
+    interpreter = _interpreter(model_path)
+    inputs = {int(item["index"]) for item in interpreter.get_input_details()}
+    outputs = {int(item["index"]) for item in interpreter.get_output_details()}
+    constants: list[dict[str, object]] = []
+    biases: list[dict[str, object]] = []
+    activations: list[dict[str, object]] = []
+    recurrent_scales: list[float] = []
+    for detail in interpreter.get_tensor_details():
+        parameters = detail["quantization_parameters"]
+        scales = np.asarray(parameters["scales"], dtype=np.float64)
+        if not len(scales):
+            continue
+        record = {
+            "index": int(detail["index"]),
+            "name": str(detail["name"]),
+            "shape": [int(value) for value in detail["shape"]],
+            "dtype": np.dtype(detail["dtype"]).name,
+            "scheme": "per_axis" if len(scales) > 1 else "per_tensor",
+            "scale_count": len(scales),
+            "quantized_dimension": int(parameters["quantized_dimension"]),
+            "scale_minimum": float(np.min(scales)),
+            "scale_maximum": float(np.max(scales)),
+        }
+        is_constant = str(detail["name"]).startswith("tfl.pseudo_qconst")
+        if is_constant and np.dtype(detail["dtype"]) == np.dtype(np.int8):
+            constants.append(record)
+        elif is_constant and np.dtype(detail["dtype"]) == np.dtype(np.int32):
+            biases.append(record)
+        else:
+            activations.append(record)
+            if re.match(r"^MatMul_\d+;add_\d+$", str(detail["name"])):
+                recurrent_scales.append(float(scales[0]))
+    return {
+        "quantized_tensor_count": len(constants) + len(biases) + len(activations),
+        "int8_constant_tensor_count": len(constants),
+        "learned_matrix_weight_tensors": [
+            row for row in constants if row["scheme"] == "per_axis"
+        ],
+        "other_int8_constant_tensor_count": sum(
+            row["scheme"] == "per_tensor" for row in constants
+        ),
+        "bias_tensor_count": len(biases),
+        "bias_per_axis_count": sum(row["scheme"] == "per_axis" for row in biases),
+        "activation_tensor_count": len(activations),
+        "activation_per_axis_count": sum(
+            row["scheme"] == "per_axis" for row in activations
+        ),
+        "activation_per_tensor_scale": {
+            "minimum": min(float(row["scale_minimum"]) for row in activations),
+            "maximum": max(float(row["scale_maximum"]) for row in activations),
+        },
+        "input_and_output_are_per_tensor": all(
+            row["scheme"] == "per_tensor"
+            for row in activations
+            if row["index"] in inputs | outputs
+        ),
+        "recurrent_intermediate_scale": {
+            "count": len(recurrent_scales),
+            "minimum": min(recurrent_scales),
+            "maximum": max(recurrent_scales),
+            "by_timestep": recurrent_scales,
+        },
+    }
+
+
+def _error_distribution(actual: np.ndarray, expected: np.ndarray) -> dict[str, object]:
+    error = np.abs(
+        actual.astype(np.float64, copy=False) - expected.astype(np.float64, copy=False)
+    )
+    return {
+        "maximum_absolute_error": float(np.max(error)),
+        "mean_absolute_error": float(np.mean(error)),
+        "p50_absolute_error": float(np.percentile(error, 50)),
+        "p90_absolute_error": float(np.percentile(error, 90)),
+        "p95_absolute_error": float(np.percentile(error, 95)),
+        "p99_absolute_error": float(np.percentile(error, 99)),
+        "signed_bias": float(np.mean(actual.astype(np.float64) - expected)),
+        "maximum_error_index": int(np.argmax(error)),
+    }
+
+
+def _run_int8_model(
+    model_path: Path, windows: np.ndarray
+) -> tuple[np.ndarray, dict[str, object]]:
+    interpreter = _interpreter(model_path)
+    inputs = interpreter.get_input_details()
+    outputs = interpreter.get_output_details()
+    _require(len(inputs) == len(outputs) == 1, "unexpected INT8 TFLite IO count")
+    _require(
+        list(inputs[0]["shape"]) == [1, 20, 80]
+        and inputs[0]["dtype"] == np.int8,
+        "formal INT8 input contract changed",
+    )
+    _require(
+        list(outputs[0]["shape"]) == [1, 2]
+        and outputs[0]["dtype"] == np.int8,
+        "formal INT8 output contract changed",
+    )
+    input_scale, input_zero = inputs[0]["quantization"]
+    output_scale, output_zero = outputs[0]["quantization"]
+    _require(input_scale > 0.0 and output_scale > 0.0, "INT8 IO scale is invalid")
+    values: list[np.ndarray] = []
+    input_error: list[np.ndarray] = []
+    saturation_count = 0
+    for window in windows:
+        unbounded = np.rint(window / input_scale + input_zero)
+        saturation_count += int(np.count_nonzero((unbounded < -128) | (unbounded > 127)))
+        quantized = np.clip(unbounded, -128, 127).astype(np.int8)
+        dequantized_input = (quantized.astype(np.float32) - input_zero) * input_scale
+        input_error.append(np.abs(dequantized_input - window))
+        interpreter.set_tensor(inputs[0]["index"], quantized[None, ...])
+        interpreter.invoke()
+        quantized_output = interpreter.get_tensor(outputs[0]["index"])[0].copy()
+        values.append(
+            (quantized_output.astype(np.float32) - output_zero) * output_scale
+        )
+    all_input_error = np.concatenate([value.reshape(-1) for value in input_error])
+    input_elements = int(windows.size)
+    return np.asarray(values, dtype=np.float32), {
+        "input": _tensor_contract(inputs[0]),
+        "output": _tensor_contract(outputs[0]),
+        "input_quantization": {
+            "formula": "clip(round(float_value / scale + zero_point), -128, 127)",
+            "element_count": input_elements,
+            "saturation_count": saturation_count,
+            "saturation_fraction": saturation_count / input_elements,
+            "maximum_absolute_dequantization_error": float(np.max(all_input_error)),
+            "p99_absolute_dequantization_error": float(
+                np.percentile(all_input_error, 99)
+            ),
+        },
     }
 
 
@@ -651,6 +798,476 @@ def evaluate_export_feasibility(
             "INT8_QUANTIZATION_AND_PARITY"
             if float_contract_passed
             else "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLUTION"
+        ),
+    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    result["result_path"] = str(result_path)
+    return result
+
+
+def _evaluate_int8_ensemble(
+    *,
+    states: list[dict[str, np.ndarray]],
+    seeds: list[int],
+    calibration: np.ndarray,
+    windows: np.ndarray,
+    golden: dict[str, np.ndarray],
+    output_directory: Path,
+    include_softmax: bool,
+    expected_operators: dict[str, int],
+    repeat_conversion: bool,
+) -> dict[str, object]:
+    artifacts: list[dict[str, object]] = []
+    dequantized_outputs: list[np.ndarray] = []
+    suffix = "probability" if include_softmax else "logits"
+    for seed, state in zip(seeds, states):
+        payload = _int8_tflite(
+            state, calibration, include_softmax=include_softmax
+        )
+        path = output_directory / f"member_seed{seed}_int8_{suffix}.tflite"
+        artifact = _write_artifact(path, payload)
+        graph = inspect_tflite(path)
+        _require(
+            graph["operators"] == expected_operators,
+            f"formal INT8 {suffix} graph changed for seed {seed}",
+        )
+        values, io = _run_int8_model(path, windows)
+        deterministic = True
+        if repeat_conversion:
+            deterministic = (
+                _int8_tflite(
+                    state, calibration, include_softmax=include_softmax
+                )
+                == payload
+            )
+            _require(deterministic, f"INT8 conversion is not deterministic: {seed}")
+        artifact.update(
+            {
+                "seed": seed,
+                "graph": graph,
+                "io": io,
+                "quantization_summary": _quantization_summary(path),
+                "repeated_conversion_byte_identical": deterministic,
+            }
+        )
+        artifacts.append(artifact)
+        dequantized_outputs.append(values)
+
+    stacked = np.stack(dequantized_outputs).astype(np.float32, copy=False)
+    if include_softmax:
+        logits: np.ndarray | None = None
+        probabilities = stacked[:, :, 1].astype(np.float64)
+        output_semantics = "dequantized_softmax_class_1_probability"
+    else:
+        logits = stacked
+        probabilities = _softmax_hazard(logits)
+        output_semantics = "dequantized_logits_then_host_float32_softmax_class_1"
+    ensemble = np.mean(probabilities, axis=0, dtype=np.float64)
+    crossing, counts, reflex, onset = apply_decision(ensemble)
+    probability_by_seed: dict[str, object] = {}
+    for index, seed in enumerate(seeds):
+        distribution = _error_distribution(
+            probabilities[index], golden["member_hazard_probability"][index]
+        )
+        error_index = int(distribution["maximum_error_index"])
+        distribution["float_at_maximum_error"] = float(
+            golden["member_hazard_probability"][index, error_index]
+        )
+        distribution["int8_at_maximum_error"] = float(
+            probabilities[index, error_index]
+        )
+        probability_by_seed[str(seed)] = distribution
+    parity: dict[str, object] = {
+        "member_hazard_probability": _error_distribution(
+            probabilities, golden["member_hazard_probability"]
+        ),
+        "member_hazard_probability_by_seed": probability_by_seed,
+        "ensemble_hazard_probability": _error_distribution(
+            ensemble, golden["ensemble_hazard_probability"]
+        ),
+        "threshold_crossing": _exact_parity(
+            crossing, golden["threshold_crossing"]
+        ),
+        "consecutive_threshold_count": _exact_parity(
+            counts, golden["consecutive_threshold_count"]
+        ),
+        "reflex_required": _exact_parity(reflex, golden["reflex_required"]),
+        "reflex_onset": _exact_parity(onset, golden["reflex_onset"]),
+    }
+    if logits is not None:
+        parity["member_logits"] = _error_distribution(
+            logits, golden["member_logits"]
+        )
+    return {
+        "representation": output_semantics,
+        "members": artifacts,
+        "parity": parity,
+        "actual": {
+            "probabilities": probabilities,
+            "ensemble": ensemble,
+            "threshold_crossing": crossing,
+            "consecutive_threshold_count": counts,
+            "reflex_required": reflex,
+            "reflex_onset": onset,
+        },
+    }
+
+
+def evaluate_int8_quantization(
+    repository_root: Path,
+    config_path: Path = DEFAULT_CONFIG,
+    output_root: Path | None = None,
+) -> dict[str, object]:
+    """Quantize all members, characterize parity, and compile the formal graphs."""
+    root = repository_root.resolve()
+    bundle, config, model_manifest, _ = validate_reference_bundle(root, config_path)
+    settings = config.get("formal_int8")
+    _require(isinstance(settings, dict), "formal INT8 config is missing")
+    seeds = [int(value) for value in settings["member_seeds"]]
+    _require(seeds == list(MEMBER_SEEDS), "formal INT8 member order changed")
+
+    calibration_manifest = json.loads(
+        (bundle / "calibration_manifest.json").read_text(encoding="utf-8")
+    )
+    with np.load(
+        bundle / "calibration_inputs/int8_representative.npz", allow_pickle=False
+    ) as payload:
+        representative = payload["model_windows"].copy()
+    calibration_policy = settings["calibration_policy"]
+    percentile = float(calibration_policy["symmetric_absolute_percentile"])
+    _require(percentile == 99.0, "reviewed INT8 calibration policy changed")
+    clipping_bound = float(np.percentile(np.abs(representative), percentile))
+    robust_calibration = np.clip(
+        representative, -clipping_bound, clipping_bound
+    ).astype(np.float32, copy=False)
+
+    with np.load(
+        bundle / "golden_outputs/deployment_runtime_chain.npz", allow_pickle=False
+    ) as payload:
+        golden = {name: payload[name].copy() for name in payload.files}
+    windows = golden["model_windows"]
+    _require(windows.shape == (121, 20, 80), "deployment golden windows changed")
+    models = load_ensemble(bundle, model_manifest)
+    states = [_state_arrays(model) for model in models]
+
+    if output_root is None:
+        selected_directory = _resolve_output(root, settings["selected_directory"])
+        alternative_directory = _resolve_output(
+            root, settings["alternative_directory"]
+        )
+        vela_directory = _resolve_output(root, settings["vela_directory"])
+        result_path = _resolve_output(root, settings["result_path"])
+    else:
+        selected_root = output_root.resolve()
+        selected_directory = selected_root / "quantized/selected_npu_softmax"
+        alternative_directory = selected_root / "quantized/alternatives"
+        vela_directory = selected_root / "vela"
+        result_path = selected_root / "int8_quantization_parity.json"
+
+    selected = _evaluate_int8_ensemble(
+        states=states,
+        seeds=seeds,
+        calibration=robust_calibration,
+        windows=windows,
+        golden=golden,
+        output_directory=selected_directory,
+        include_softmax=True,
+        expected_operators=settings["expected_probability_operators"],
+        repeat_conversion=True,
+    )
+    full_range = _evaluate_int8_ensemble(
+        states=states,
+        seeds=seeds,
+        calibration=representative,
+        windows=windows,
+        golden=golden,
+        output_directory=alternative_directory / "full_range_npu_softmax",
+        include_softmax=True,
+        expected_operators=settings["expected_probability_operators"],
+        repeat_conversion=False,
+    )
+    host_softmax = _evaluate_int8_ensemble(
+        states=states,
+        seeds=seeds,
+        calibration=robust_calibration,
+        windows=windows,
+        golden=golden,
+        output_directory=alternative_directory / "int8_logits_host_softmax",
+        include_softmax=False,
+        expected_operators=settings["expected_logit_operators"],
+        repeat_conversion=False,
+    )
+
+    contract_settings = settings["numerical_contract"]
+    member_records = selected["parity"]["member_hazard_probability_by_seed"]
+    ensemble_record = selected["parity"]["ensemble_hazard_probability"]
+    input_record = selected["members"][0]["io"]["input_quantization"]
+    continuous_checks = {
+        "input_saturation_fraction": {
+            "observed": input_record["saturation_fraction"],
+            "maximum": float(contract_settings["input_saturation_fraction_maximum"]),
+        },
+        "member_probability_median_absolute_error": {
+            "observed_maximum_across_members": max(
+                float(record["p50_absolute_error"])
+                for record in member_records.values()
+            ),
+            "maximum": float(
+                contract_settings["member_probability_median_absolute_error_maximum"]
+            ),
+        },
+        "member_probability_maximum_absolute_error": {
+            "observed_maximum_across_members": max(
+                float(record["maximum_absolute_error"])
+                for record in member_records.values()
+            ),
+            "maximum": float(
+                contract_settings["member_probability_maximum_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_p95_absolute_error": {
+            "observed": ensemble_record["p95_absolute_error"],
+            "maximum": float(
+                contract_settings["ensemble_probability_p95_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_maximum_absolute_error": {
+            "observed": ensemble_record["maximum_absolute_error"],
+            "maximum": float(
+                contract_settings["ensemble_probability_maximum_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_absolute_bias": {
+            "observed": abs(float(ensemble_record["signed_bias"])),
+            "maximum": float(
+                contract_settings["ensemble_probability_absolute_bias_maximum"]
+            ),
+        },
+    }
+    for record in continuous_checks.values():
+        observed = float(
+            record.get("observed", record.get("observed_maximum_across_members"))
+        )
+        record["status"] = "PASS" if observed <= float(record["maximum"]) else "FAIL"
+    continuous_status = (
+        "PASS"
+        if all(record["status"] == "PASS" for record in continuous_checks.values())
+        else "FAIL"
+    )
+    exact_names = (
+        "threshold_crossing",
+        "consecutive_threshold_count",
+        "reflex_required",
+        "reflex_onset",
+    )
+    exact_status = (
+        "PASS"
+        if all(selected["parity"][name]["status"] == "PASS" for name in exact_names)
+        else "FAIL"
+    )
+
+    expected_ensemble = golden["ensemble_hazard_probability"]
+    threshold = float(settings["threshold"])
+    above = expected_ensemble >= threshold
+    above_index = int(np.flatnonzero(above)[np.argmin(expected_ensemble[above] - threshold)])
+    below_index = int(
+        np.flatnonzero(~above)[np.argmin(threshold - expected_ensemble[~above])]
+    )
+    selected_actual = selected["actual"]
+    sensitivity = {
+        "threshold": threshold,
+        "persistence_samples": int(settings["persistence_samples"]),
+        "closest_float_above": {
+            "window_index": above_index,
+            "float_probability": float(expected_ensemble[above_index]),
+            "int8_probability": float(selected_actual["ensemble"][above_index]),
+            "float_margin": float(expected_ensemble[above_index] - threshold),
+            "signed_int8_error": float(
+                selected_actual["ensemble"][above_index]
+                - expected_ensemble[above_index]
+            ),
+        },
+        "closest_float_below": {
+            "window_index": below_index,
+            "float_probability": float(expected_ensemble[below_index]),
+            "int8_probability": float(selected_actual["ensemble"][below_index]),
+            "float_margin": float(threshold - expected_ensemble[below_index]),
+            "signed_int8_error": float(
+                selected_actual["ensemble"][below_index]
+                - expected_ensemble[below_index]
+            ),
+        },
+        "crossing_mismatch_count": selected["parity"]["threshold_crossing"][
+            "mismatch_count"
+        ],
+        "count_mismatch_count": selected["parity"]["consecutive_threshold_count"][
+            "mismatch_count"
+        ],
+        "reflex_mismatch_count": selected["parity"]["reflex_required"][
+            "mismatch_count"
+        ],
+        "onset_mismatch_count": selected["parity"]["reflex_onset"][
+            "mismatch_count"
+        ],
+        "float_onset_window_indices": np.flatnonzero(golden["reflex_onset"]).tolist(),
+        "int8_onset_window_indices": np.flatnonzero(
+            selected_actual["reflex_onset"]
+        ).tolist(),
+        "float_onset_endpoints": golden["window_endpoints"][
+            golden["reflex_onset"]
+        ].tolist(),
+        "int8_onset_endpoints": golden["window_endpoints"][
+            selected_actual["reflex_onset"]
+        ].tolist(),
+    }
+
+    vela = shutil.which("vela")
+    if vela is None:
+        raise RuntimeError("Vela executable is not installed or not on PATH")
+    target = settings["target"]
+    mappings: dict[str, dict[str, object]] = {}
+    for memory_mode in ("Shared_Sram", "Sram_Only"):
+        by_seed: dict[str, object] = {}
+        for member in selected["members"]:
+            seed = int(member["seed"])
+            record = _run_vela(
+                vela,
+                Path(member["path"]),
+                vela_directory / memory_mode.lower() / f"member_seed{seed}",
+                str(target["accelerator_config"]),
+                str(target["generic_system_config"]),
+                memory_mode,
+            )
+            _require(
+                record["cpu_operators"] == 0 and record["npu_operators"] > 0,
+                f"formal member {seed}/{memory_mode} has U55 fallback",
+            )
+            by_seed[str(seed)] = record
+        mappings[memory_mode] = by_seed
+    vela_summary: dict[str, object] = {}
+    for memory_mode, by_seed in mappings.items():
+        rows = list(by_seed.values())
+        vela_summary[memory_mode] = {
+            "three_member_macs": sum(int(row["macs_per_inference"]) for row in rows),
+            "three_member_npu_cycles": sum(int(row["npu_cycles"]) for row in rows),
+            "three_member_total_cycles": sum(int(row["total_cycles"]) for row in rows),
+            "maximum_member_sram_kib": max(float(row["sram_kib"]) for row in rows),
+            "sum_compiled_model_bytes": sum(
+                int(row["compiled_model"]["bytes"]) for row in rows
+            ),
+            "scratch_reuse_assumption": (
+                "sequential member invocation may reuse the largest member arena; "
+                "TFLM arena and linker placement remain M4 measurements"
+            ),
+        }
+
+    numerical_pass = continuous_status == "PASS" and exact_status == "PASS"
+    status = (
+        "INT8_QUANTIZATION_AND_PARITY_PASS"
+        if numerical_pass
+        else M3_VERDICT
+    )
+
+    def without_arrays(value: dict[str, object]) -> dict[str, object]:
+        return {key: item for key, item in value.items() if key != "actual"}
+
+    result: dict[str, object] = {
+        "status": status,
+        "reference": {
+            "candidate_id": model_manifest["candidate_id"],
+            "engineering_role": model_manifest["engineering_role"],
+            "scientific_verdict": model_manifest["scientific_status"]["verdict"],
+            "research_release_commit": config["accepted_identity"][
+                "research_release_commit"
+            ],
+            "release_manifest_sha256": config["accepted_identity"][
+                "release_manifest_sha256"
+            ],
+            "calibration_sha256": config["accepted_identity"][
+                "int8_calibration_sha256"
+            ],
+        },
+        "calibration": {
+            "source_splits": calibration_manifest["source_splits"],
+            "run_count": calibration_manifest["selection"]["run_count"],
+            "window_count": calibration_manifest["selection"]["window_count"],
+            "selection_strategy": calibration_manifest["selection"]["strategy"],
+            "input_representation": calibration_manifest["representation"],
+            "deployment_range_policy": {
+                "method": "symmetric_clipping_before_representative_calibration",
+                "absolute_percentile": percentile,
+                "bound": clipping_bound,
+                "fraction_of_representative_elements_clipped_by_definition": 0.01,
+                "runtime_preprocessing_changed": False,
+                "rationale": calibration_policy["rationale"],
+            },
+            "protected_holdout_access": False,
+        },
+        "selected_representation": {
+            "name": "full_integer_int8_with_npu_softmax",
+            "graph": (
+                "int8 input, per-axis int8 weights, per-tensor int8 activations, "
+                "NPU softmax, int8 [1,2] probabilities"
+            ),
+            "host_boundary": (
+                "dequantize two probabilities, select class 1, promote to float64, "
+                "three-member mean, >=0.99, five-sample persistence"
+            ),
+            "formal": without_arrays(selected),
+            "selection_reason": (
+                "same numerical decision result as host softmax with one fewer host "
+                "nonlinear operation and complete U55 graph placement"
+            ),
+        },
+        "alternatives": {
+            "unclipped_full_train_range_npu_softmax": without_arrays(full_range),
+            "robust_range_int8_logits_host_float32_softmax": without_arrays(
+                host_softmax
+            ),
+        },
+        "int8_numerical_contract": {
+            "status": continuous_status,
+            "checks": continuous_checks,
+            "rationale": contract_settings["rationale"],
+            "float_tolerances_reused": False,
+            "discrete_requirement": "all_four_layers_exact",
+            "discrete_status": exact_status,
+        },
+        "threshold_sensitivity": sensitivity,
+        "vela": {
+            "tool_version": _package_version("ethos-u-vela"),
+            "executable": vela,
+            "accelerator_config": target["accelerator_config"],
+            "system_config": target["generic_system_config"],
+            "configuration_is_e84_specific": False,
+            "members": mappings,
+            "three_member_summary": vela_summary,
+            "timing_is_board_measured": False,
+        },
+        "toolchain": {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "torch": torch.__version__,
+            "tensorflow": _package_version("tensorflow"),
+            "ai_edge_litert": _package_version("ai-edge-litert"),
+            "ethos_u_vela": _package_version("ethos-u-vela"),
+        },
+        "boundary": {
+            "m3_completed": True,
+            "continuous_probability_contract_passed": continuous_status == "PASS",
+            "exact_decision_parity_passed": exact_status == "PASS",
+            "m4_authorized": numerical_pass,
+            "firmware_started": False,
+            "board_state_modified": False,
+            "research_semantics_modified": False,
+        },
+        "next_milestone": (
+            "M4_E84_FIRMWARE_AND_BOARD_EXECUTION"
+            if numerical_pass
+            else "INT8_RECURRENT_NUMERICAL_INSTABILITY_RESOLUTION"
         ),
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
