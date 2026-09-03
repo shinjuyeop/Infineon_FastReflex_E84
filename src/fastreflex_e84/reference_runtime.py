@@ -281,21 +281,29 @@ def run_runtime_chain(
     endpoints, windows = build_windows(normalized)
     models = load_ensemble(bundle, model_manifest)
     tensor = torch.from_numpy(windows)
+    member_logits: list[np.ndarray] = []
+    member_probabilities: list[np.ndarray] = []
     with torch.no_grad():
-        # Match the handoff's explicit stateless GRU backend warm-up, then
-        # derive logits and probabilities from the same stable forward pass.
         for model in models:
-            model(tensor)
-        member_outputs = [model(tensor) for model in models]
-        logits = np.stack(
-            [value.cpu().numpy() for value in member_outputs]
-        ).astype(np.float32, copy=False)
-        member_probability = np.stack(
-            [
-                torch.softmax(value, dim=1)[:, 1].cpu().numpy()
-                for value in member_outputs
-            ]
-        ).astype(np.float64)
+            logits_for_member: list[np.ndarray] = []
+            probability_for_member: list[np.ndarray] = []
+            for window in tensor:
+                # The control loop supplies one new endpoint at a time. Each
+                # invocation therefore has shape [1,20,80] and a fresh hidden
+                # state rather than a batching-dependent host test shape.
+                output = model(window[None, ...])
+                logits_for_member.append(output.cpu().numpy()[0])
+                probability_for_member.append(
+                    torch.softmax(output, dim=1)[:, 1].cpu().numpy()[0]
+                )
+            member_logits.append(np.asarray(logits_for_member, dtype=np.float32))
+            member_probabilities.append(
+                np.asarray(probability_for_member, dtype=np.float32)
+            )
+    logits = np.stack(member_logits).astype(np.float32, copy=False)
+    member_probability = (
+        np.stack(member_probabilities).astype(np.float32, copy=False).astype(np.float64)
+    )
     ensemble = np.mean(member_probability, axis=0)
     crossing, counts, reflex, onset = apply_decision(ensemble)
     return RuntimeChain(

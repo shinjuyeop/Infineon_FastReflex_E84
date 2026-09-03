@@ -31,9 +31,15 @@ BUNDLE = ROOT / "model/source/model_v2_anchor_refined_gru20_20260902"
 
 def test_handoff_and_all_host_float_layers_pass() -> None:
     result = verify_reference_handoff(ROOT, CONFIG)
-    assert result["status"] == "REFERENCE_MODEL_HANDOFF_AND_HOST_FLOAT_PARITY_PASS"
-    assert result["contract"]["files_verified"] == 14
+    assert (
+        result["status"]
+        == "REFERENCE_MODEL_HANDOFF_AND_BATCH_ONE_HOST_FLOAT_PARITY_PASS"
+    )
+    assert result["contract"]["files_verified"] == 16
     assert result["parity"]["status"] == "PASS"
+    assert result["parity"]["canonical_execution_shape"] == [1, 20, 80]
+    assert result["parity"]["continuous_parity"]["member_logits"]["absolute"] == 4e-6
+    assert result["parity"]["continuous_parity"]["member_logits"]["relative"] == 0.0
     assert result["parity"]["reflex_onset_endpoints"] == [65, 90, 107]
     assert set(result["parity"]["layers"]) == {
         "raw_pelvis_imu6",
@@ -107,9 +113,7 @@ def test_feature_order_prefix_and_population_rolling_semantics() -> None:
 
 def test_inclusive_threshold_and_consecutive_reset() -> None:
     probabilities = np.asarray(
-        [0.99, 0.99, 0.99, 0.99, np.nextafter(0.99, 0.0)]
-        + [0.99] * 6
-        + [0.0],
+        [0.99, 0.99, 0.99, 0.99, np.nextafter(0.99, 0.0)] + [0.99] * 6 + [0.0],
         dtype=np.float64,
     )
     crossing, counts, reflex, onset = apply_decision(probabilities)
@@ -151,9 +155,7 @@ def test_resigned_feature_order_drift_still_fails(tmp_path: Path) -> None:
     )
     release_manifest_path = bundle / "release_manifest.json"
     release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
-    release_manifest["files"]["preprocessing.json"] = sha256_file(
-        preprocessing_path
-    )
+    release_manifest["files"]["preprocessing.json"] = sha256_file(preprocessing_path)
     release_manifest_path.write_text(
         json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -164,4 +166,35 @@ def test_resigned_feature_order_drift_still_fails(tmp_path: Path) -> None:
     )
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     with pytest.raises(ValueError, match="feature order"):
+        validate_reference_bundle(root, config_path)
+
+
+def test_resigned_local_tolerance_widening_still_fails(tmp_path: Path) -> None:
+    root, config_path, bundle = _temporary_acceptance_root(tmp_path)
+    contract_path = bundle / "float_numerical_contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["continuous_parity"]["member_logits"]["absolute"] = 5e-6
+    contract_path.write_text(
+        json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    release_manifest_path = bundle / "release_manifest.json"
+    release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
+    release_manifest["files"]["float_numerical_contract.json"] = sha256_file(
+        contract_path
+    )
+    release_manifest_path.write_text(
+        json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["accepted_identity"]["release_manifest_sha256"] = sha256_file(
+        release_manifest_path
+    )
+    config["accepted_identity"]["float_numerical_contract_sha256"] = sha256_file(
+        contract_path
+    )
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Research Float parity tolerances"):
         validate_reference_bundle(root, config_path)

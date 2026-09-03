@@ -30,7 +30,9 @@ REQUIRED_RELEASE_FILES = frozenset(
         "golden_inputs/runtime_chain.npz",
         "golden_manifest.json",
         "golden_outputs/decision_probe.npz",
+        "golden_outputs/deployment_runtime_chain.npz",
         "golden_outputs/runtime_chain.npz",
+        "float_numerical_contract.json",
         "label_map.json",
         "metrics.json",
         "model_manifest.json",
@@ -76,12 +78,10 @@ def _resolve_bundle(repository_root: Path, relative: str) -> Path:
 
 def validate_reference_bundle(
     repository_root: Path, config_path: Path = DEFAULT_CONFIG
-) -> tuple[Path, dict[str, object], dict[str, object]]:
+) -> tuple[Path, dict[str, object], dict[str, object], dict[str, object]]:
     """Validate identity, every file hash, and all runtime contract invariants."""
     root = repository_root.resolve()
-    selected_config = (
-        config_path if config_path.is_absolute() else root / config_path
-    )
+    selected_config = config_path if config_path.is_absolute() else root / config_path
     config = yaml.safe_load(selected_config.read_text(encoding="utf-8"))
     _require(config.get("schema_version") == 1, "unsupported acceptance config")
     accepted = config["accepted_identity"]
@@ -104,9 +104,7 @@ def validate_reference_bundle(
         "release manifest file set changed",
     )
     actual_files = {
-        str(path.relative_to(bundle))
-        for path in bundle.rglob("*")
-        if path.is_file()
+        str(path.relative_to(bundle)) for path in bundle.rglob("*") if path.is_file()
     }
     _require(
         actual_files == REQUIRED_RELEASE_FILES | {"release_manifest.json"},
@@ -129,6 +127,7 @@ def validate_reference_bundle(
     labels = _load_json(bundle / "label_map.json")
     metrics = _load_json(bundle / "metrics.json")
     golden = _load_json(bundle / "golden_manifest.json")
+    float_contract = _load_json(bundle / "float_numerical_contract.json")
     provenance = model["provenance"]
     scientific = model["scientific_status"]
     _require(model.get("candidate_id") == accepted["release_id"], "candidate changed")
@@ -180,8 +179,7 @@ def validate_reference_bundle(
         "model architecture contract changed",
     )
     _require(
-        architecture.get("architecture_sha256")
-        == accepted["architecture_sha256"],
+        architecture.get("architecture_sha256") == accepted["architecture_sha256"],
         "architecture identity changed",
     )
     runtime = model["runtime"]
@@ -199,16 +197,14 @@ def validate_reference_bundle(
         and runtime.get("threshold") == 0.99
         and runtime.get("threshold_comparison") == "greater_than_or_equal"
         and runtime.get("persistence_samples") == 5
-        and runtime.get("persistence")
-        == "consecutive_samples_reset_to_zero_on_failure"
+        and runtime.get("persistence") == "consecutive_samples_reset_to_zero_on_failure"
         and runtime.get("output_hold")
         == "asserted_while_current_streak_is_at_least_five_and_deasserted_immediately_on_failure"
         and runtime.get("feature_schema_sha256") == FEATURE_SCHEMA_SHA256,
         "runtime decision contract changed",
     )
     _require(
-        runtime.get("feature_schema_sha256")
-        == accepted["feature_schema_sha256"],
+        runtime.get("feature_schema_sha256") == accepted["feature_schema_sha256"],
         "accepted feature schema identity changed",
     )
     members = model["ensemble_members"]
@@ -217,8 +213,7 @@ def validate_reference_bundle(
         "checkpoint membership changed",
     )
     _require(
-        [member.get("sha256") for member in members]
-        == accepted["checkpoint_sha256"],
+        [member.get("sha256") for member in members] == accepted["checkpoint_sha256"],
         "accepted checkpoint identity changed",
     )
     for member in members:
@@ -241,17 +236,13 @@ def validate_reference_bundle(
         and sensor.get("dtype") == "float32"
         and sensor.get("frame") == "pelvis_local"
         and sensor.get("hardware_mapping_status") == "NOT_VALIDATED"
-        and [
-            (item["index"], item["name"], item["unit"])
-            for item in sensor["channels"]
-        ]
+        and [(item["index"], item["name"], item["unit"]) for item in sensor["channels"]]
         == expected_channels,
         "sensor schema changed",
     )
     _require(
         preprocessing.get("base_feature_order") == list(BASE_FEATURES)
-        and preprocessing.get("temporal_transform_order")
-        == list(TEMPORAL_TRANSFORMS)
+        and preprocessing.get("temporal_transform_order") == list(TEMPORAL_TRANSFORMS)
         and preprocessing.get("feature_order") == list(feature_schema())
         and preprocessing.get("feature_schema_sha256") == FEATURE_SCHEMA_SHA256
         and feature_schema_hash() == FEATURE_SCHEMA_SHA256,
@@ -279,8 +270,7 @@ def validate_reference_bundle(
     load_normalizer(bundle)
     _require(
         model["normalizer"].get("path") == "normalizer.json"
-        and model["normalizer"].get("sha256")
-        == accepted["normalizer_sha256"]
+        and model["normalizer"].get("sha256") == accepted["normalizer_sha256"]
         and files.get("normalizer.json") == accepted["normalizer_sha256"],
         "accepted normalizer identity changed",
     )
@@ -310,7 +300,111 @@ def validate_reference_bundle(
         and golden.get("discrete_parity") == "exact",
         "golden evidence boundary changed",
     )
-    return bundle, config, model
+    _require(
+        golden.get("historical_reference", {}).get("path")
+        == "golden_outputs/runtime_chain.npz"
+        and golden.get("historical_reference", {}).get("execution_shape")
+        == [121, 20, 80]
+        and golden.get("deployment_reference", {}).get("path")
+        == "golden_outputs/deployment_runtime_chain.npz"
+        and golden.get("deployment_reference", {}).get("execution_shape") == [1, 20, 80]
+        and golden.get("deployment_reference", {}).get(
+            "one_causal_endpoint_per_invocation"
+        )
+        is True
+        and golden.get("deployment_reference", {}).get("contract")
+        == "float_numerical_contract.json",
+        "golden execution references changed",
+    )
+    canonical = float_contract.get("canonical_execution", {})
+    continuous = float_contract.get("continuous_parity", {})
+    exact = float_contract.get("exact_parity", {})
+    _require(
+        files.get("float_numerical_contract.json")
+        == accepted["float_numerical_contract_sha256"],
+        "Float numerical contract identity changed",
+    )
+    _require(
+        float_contract.get("schema_version") == 1
+        and float_contract.get("verdict") == "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
+        and float_contract.get("candidate_id") == accepted["release_id"]
+        and float_contract.get("engineering_role") == accepted["engineering_role"]
+        and float_contract.get("scientific_verdict") == accepted["scientific_verdict"]
+        and float_contract.get("protected_holdout_access") is False,
+        "Float numerical contract status changed",
+    )
+    _require(
+        canonical.get("input_shape") == [1, 20, 80]
+        and canonical.get("input_dtype") == "float32"
+        and canonical.get("output_shape_per_member") == [1, 2]
+        and canonical.get("member_logit_dtype") == "float32"
+        and canonical.get("batch_size") == 1
+        and canonical.get("one_causal_endpoint_per_invocation") is True
+        and canonical.get("hidden_state")
+        == "zero_initialized_for_every_invocation_no_carry"
+        and canonical.get("member_softmax_compute_dtype") == "float32"
+        and canonical.get("member_probability_storage_dtype") == "float64"
+        and canonical.get("ensemble_mean_dtype") == "float64"
+        and canonical.get("golden_output")
+        == "golden_outputs/deployment_runtime_chain.npz",
+        "canonical Float execution changed",
+    )
+    _require(
+        set(continuous)
+        == {
+            "preprocessing_and_model_windows",
+            "member_logits",
+            "member_hazard_probability",
+            "ensemble_hazard_probability",
+        }
+        and continuous["preprocessing_and_model_windows"].get("absolute") == 1e-6
+        and continuous["preprocessing_and_model_windows"].get("relative") == 1e-6
+        and continuous["member_logits"].get("absolute") == 4e-6
+        and continuous["member_logits"].get("relative") == 0.0
+        and continuous["member_hazard_probability"].get("absolute") == 1e-6
+        and continuous["member_hazard_probability"].get("relative") == 1e-6
+        and continuous["ensemble_hazard_probability"].get("absolute") == 1e-6
+        and continuous["ensemble_hazard_probability"].get("relative") == 1e-6,
+        "Research Float parity tolerances changed",
+    )
+    _require(
+        exact.get("shape_and_dtype") == "exact_for_every_layer"
+        and exact.get("threshold_comparison")
+        == "probability_greater_than_or_equal_to_0.99"
+        and exact.get("threshold_crossing") == "exact"
+        and exact.get("consecutive_threshold_count") == "exact"
+        and exact.get("persistence") == "five_consecutive_1ms_samples_reset_on_failure"
+        and exact.get("reflex_required") == "exact"
+        and exact.get("reflex_onset") == "exact",
+        "exact Float decision contract changed",
+    )
+    contract_provenance = float_contract.get("provenance", {})
+    _require(
+        contract_provenance.get("contract_source_commit")
+        == accepted["packaging_source_commit"]
+        and contract_provenance.get("candidate_source_commit")
+        == accepted["candidate_source_commit"]
+        and contract_provenance.get("candidate_record_commit")
+        == accepted["candidate_record_commit"]
+        and contract_provenance.get("scientific_verdict_commit")
+        == accepted["scientific_verdict_commit"]
+        and contract_provenance.get("feature_schema_sha256")
+        == accepted["feature_schema_sha256"]
+        and contract_provenance.get("normalizer_sha256")
+        == accepted["normalizer_sha256"]
+        and contract_provenance.get("checkpoint_sha256")
+        == accepted["checkpoint_sha256"],
+        "Float numerical contract provenance changed",
+    )
+    sensitivity = float_contract.get("threshold_sensitivity", {})
+    _require(
+        sensitivity.get("threshold") == 0.99
+        and sensitivity.get("minimum_absolute_margin", 0.0)
+        > sensitivity.get("permitted_numerical_error_at_closest_probability", 1.0)
+        and sensitivity.get("margin_to_permitted_error_ratio", 0.0) > 400.0,
+        "Float threshold sensitivity evidence changed",
+    )
+    return bundle, config, model, float_contract
 
 
 def _numeric_parity(
@@ -356,10 +450,10 @@ def verify_reference_handoff(
     repository_root: Path, config_path: Path = DEFAULT_CONFIG
 ) -> dict[str, object]:
     """Prove bundle acceptance and independent host-Float runtime parity."""
-    bundle, config, model = validate_reference_bundle(repository_root, config_path)
-    tolerance = config["parity"]
-    absolute = float(tolerance["absolute_tolerance"])
-    relative = float(tolerance["relative_tolerance"])
+    bundle, config, model, float_contract = validate_reference_bundle(
+        repository_root, config_path
+    )
+    continuous = float_contract["continuous_parity"]
     with np.load(
         bundle / "golden_inputs/runtime_chain.npz", allow_pickle=False
     ) as inputs:
@@ -375,7 +469,9 @@ def verify_reference_handoff(
     )
     _require(
         source_indices.dtype == np.int64
-        and np.array_equal(np.diff(source_indices), np.ones(len(raw) - 1, dtype=np.int64))
+        and np.array_equal(
+            np.diff(source_indices), np.ones(len(raw) - 1, dtype=np.int64)
+        )
         and timestamp_us.dtype == np.int64
         and np.array_equal(
             np.diff(timestamp_us), np.full(len(raw) - 1, 1000, dtype=np.int64)
@@ -394,7 +490,7 @@ def verify_reference_handoff(
         }
     }
     with np.load(
-        bundle / "golden_outputs/runtime_chain.npz", allow_pickle=False
+        bundle / "golden_outputs/deployment_runtime_chain.npz", allow_pickle=False
     ) as expected:
         for name in (
             "base_features",
@@ -405,8 +501,22 @@ def verify_reference_handoff(
             "member_hazard_probability",
             "ensemble_hazard_probability",
         ):
+            tolerance_name = (
+                name
+                if name
+                in {
+                    "member_logits",
+                    "member_hazard_probability",
+                    "ensemble_hazard_probability",
+                }
+                else "preprocessing_and_model_windows"
+            )
+            tolerance = continuous[tolerance_name]
             layers[name] = _numeric_parity(
-                getattr(chain, name), expected[name], absolute, relative
+                getattr(chain, name),
+                expected[name],
+                float(tolerance["absolute"]),
+                float(tolerance["relative"]),
             )
         for name in (
             "window_endpoints",
@@ -437,7 +547,7 @@ def verify_reference_handoff(
     accepted = config["accepted_identity"]
     onset_endpoints = chain.window_endpoints[chain.reflex_onset].tolist()
     return {
-        "status": "REFERENCE_MODEL_HANDOFF_AND_HOST_FLOAT_PARITY_PASS",
+        "status": "REFERENCE_MODEL_HANDOFF_AND_BATCH_ONE_HOST_FLOAT_PARITY_PASS",
         "candidate_id": accepted["release_id"],
         "engineering_role": accepted["engineering_role"],
         "contract": {
@@ -448,8 +558,8 @@ def verify_reference_handoff(
         },
         "parity": {
             "status": "PASS",
-            "absolute_tolerance": absolute,
-            "relative_tolerance": relative,
+            "canonical_execution_shape": [1, 20, 80],
+            "continuous_parity": continuous,
             "discrete_decisions": "exact",
             "layers": layers,
             "decision_probe": decision_probe,
@@ -461,5 +571,5 @@ def verify_reference_handoff(
             "release_model": False,
             "real_robot_supported": False,
         },
-        "next_milestone": "EXPORT_AND_TARGET_OPERATOR_FEASIBILITY",
+        "next_milestone": "FLOAT_EXPORT_REVALIDATION",
     }

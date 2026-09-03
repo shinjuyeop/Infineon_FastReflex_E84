@@ -10,6 +10,7 @@ Research repository에서 검증·동결된 Float model을 받아 KIT_PSE84_AI /
 Frozen Float Model
   -> Float TFLite Export
   -> Float Parity Gate
+  -> Float Numerical Contract Resolution
   -> Minimum INT8 Operator Probe
   -> Vela / U55 Mapping
   -> Formal INT8 Parity
@@ -47,17 +48,18 @@ Frozen Float Model
 - `label_map.json`
 - `golden_inputs`
 - `golden_outputs`
+- `float_numerical_contract.json`
 - `metrics.json`
 
 실제 계약과 checksum은 [`docs/model_contract.md`](docs/model_contract.md)를 참고한다.
 
 ## Current Status
 
-`FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS`
+`FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED`
 
-M1 handoff/Host Float parity는 유지된다. M2에서 exact three-member GRU20을 static Float32 TFLite built-in graph로 변환했다. 변환된 probability, ensemble, threshold, 5 ms persistence와 최종 decision은 golden evidence와 일치하지만, seed `20260829`의 logit 두 개가 frozen `atol=rtol=1e-6` 범위를 벗어나 Float conversion gate는 FAIL이다. 최대 절대 logit 오차는 `2.682209e-6`이다.
+Research가 실제 runtime과 같은 독립 batch-1 `[1,20,80]`을 canonical Float execution으로 승인하고 새 golden과 layer별 contract를 16-file handoff에 고정했다. E84 독립 Host runtime은 모든 수치 layer를 bit-exact하게 재현했다. Float TFLite의 최대 오차는 member logits `2.384186e-6`, member probability `1.072884e-6`, ensemble `3.470729e-7`이며 Research contract를 모두 통과했다. Threshold crossing, consecutive count, 5 ms persistence, onset과 최종 decision은 exact다.
 
-실제 Vela 4.2.0 결과 Float graph는 `301 CPU / 0 NPU`이고, non-protected M1 golden windows만 사용한 최소 INT8+softmax operator probe는 `0 CPU / 192 NPU`로 Ethos-U55-128에 전부 배치된다. 이 probe는 INT8 parity나 quantization sign-off가 아니다. Generic Arm memory configuration의 cycle estimate도 board 성능 증거가 아니다. 따라서 architecture-level operator blocker는 발견되지 않았지만, frozen Float numerical contract를 해결하기 전 formal INT8 milestone로 진행하지 않는다.
+기존 M2 operator 결과도 유지된다. Vela 4.2.0에서 Float graph는 `301 CPU / 0 NPU`이고, non-protected golden windows만 사용한 최소 INT8+softmax probe는 `0 CPU / 192 NPU`로 Ethos-U55-128에 전부 배치된다. 이 probe는 INT8 parity나 quantization sign-off가 아니며 Generic Arm cycle estimate도 board 성능 증거가 아니다. Float gate가 해결되었으므로 다음 milestone `INT8_QUANTIZATION_AND_PARITY`는 승인된다.
 
 Candidate role은 계속 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`, scientific verdict는 계속 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Firmware, flash, board execution과 HIL은 시작하지 않았다.
 
@@ -90,7 +92,7 @@ python tools/deployment.py evaluate-export
 PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
 
-현재 `evaluate-export`는 evidence JSON을 완전히 생성한 뒤 Float gate 실패를 반영해 exit code 2를 반환한다. 이는 expected fail-closed 결과다.
+현재 `verify-reference`와 `evaluate-export`는 모두 Research-owned batch-1 contract를 소비해 exit code 0으로 통과한다. Contract 또는 discrete decision이 어긋나면 fail-closed한다.
 
 현재 Python, M2 conversion/Vela 도구와 KitProg USB 열거 상태를 확인하려면:
 
@@ -98,4 +100,4 @@ PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python tools/verify_environment.py
 ```
 
-생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. M2 evidence와 재현 명령은 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md)에 있다.
+생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. Historical M2 evidence는 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md), M2.1 resolution은 [`reports/float_numerical_contract_resolution.md`](reports/float_numerical_contract_resolution.md)에 있다.

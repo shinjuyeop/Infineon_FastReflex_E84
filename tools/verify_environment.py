@@ -44,7 +44,7 @@ def main() -> int:
     current = sys.version_info[:2]
     print(f"Python: {platform.python_version()}")
     print(f"Platform: {platform.platform()}")
-    print("Project status: FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS")
+    print("Project status: FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED")
 
     if current < MINIMUM_PYTHON:
         print("Result: Python 3.10 or newer is required.")

@@ -21,6 +21,7 @@ from .reference_runtime import MEMBER_SEEDS, apply_decision, load_ensemble
 
 
 M2_VERDICT = "FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS"
+M21_VERDICT = "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
 STATE_KEYS = (
     "gru.weight_ih_l0",
     "gru.weight_hh_l0",
@@ -400,7 +401,9 @@ def evaluate_export_feasibility(
 ) -> dict[str, object]:
     """Export all frozen members, prove Float parity, and query actual Vela."""
     root = repository_root.resolve()
-    bundle, config, model_manifest = validate_reference_bundle(root, config_path)
+    bundle, config, model_manifest, float_contract = validate_reference_bundle(
+        root, config_path
+    )
     settings = config.get("export_feasibility")
     _require(isinstance(settings, dict), "export feasibility config is missing")
     seeds = [int(value) for value in settings["member_seeds"]]
@@ -421,7 +424,7 @@ def evaluate_export_feasibility(
         result_path = selected_root / "export_target_feasibility.json"
 
     with np.load(
-        bundle / "golden_outputs/runtime_chain.npz", allow_pickle=False
+        bundle / "golden_outputs/deployment_runtime_chain.npz", allow_pickle=False
     ) as golden:
         windows = golden["model_windows"].copy()
         expected_logits = golden["member_logits"].copy()
@@ -458,26 +461,42 @@ def evaluate_export_feasibility(
     actual_probabilities = _softmax_hazard(actual_logits)
     actual_ensemble = np.mean(actual_probabilities, axis=0, dtype=np.float64)
     crossing, counts, reflex, onset = apply_decision(actual_ensemble)
-    tolerance = config["parity"]
-    absolute = float(tolerance["absolute_tolerance"])
-    relative = float(tolerance["relative_tolerance"])
+    tolerance = float_contract["continuous_parity"]
+    logit_absolute = float(tolerance["member_logits"]["absolute"])
+    logit_relative = float(tolerance["member_logits"]["relative"])
+    probability_absolute = float(tolerance["member_hazard_probability"]["absolute"])
+    probability_relative = float(tolerance["member_hazard_probability"]["relative"])
+    ensemble_absolute = float(tolerance["ensemble_hazard_probability"]["absolute"])
+    ensemble_relative = float(tolerance["ensemble_hazard_probability"]["relative"])
     member_parity = {
         str(seed): _numeric_parity(
-            actual_logits[index], expected_logits[index], absolute, relative
+            actual_logits[index],
+            expected_logits[index],
+            logit_absolute,
+            logit_relative,
         )
         for index, seed in enumerate(seeds)
     }
     parity = {
-        "tolerance": {"absolute": absolute, "relative": relative},
+        "tolerance": tolerance,
         "member_logits": _numeric_parity(
-            actual_logits, expected_logits, absolute, relative
+            actual_logits,
+            expected_logits,
+            logit_absolute,
+            logit_relative,
         ),
         "member_logits_by_seed": member_parity,
         "member_hazard_probability": _numeric_parity(
-            actual_probabilities, expected_probabilities, absolute, relative
+            actual_probabilities,
+            expected_probabilities,
+            probability_absolute,
+            probability_relative,
         ),
         "ensemble_hazard_probability": _numeric_parity(
-            actual_ensemble, expected_ensemble, absolute, relative
+            actual_ensemble,
+            expected_ensemble,
+            ensemble_absolute,
+            ensemble_relative,
         ),
         "threshold_crossing": _exact_parity(crossing, expected_crossing),
         "consecutive_threshold_count": _exact_parity(counts, expected_counts),
@@ -561,8 +580,13 @@ def evaluate_export_feasibility(
     total_cycles = int8_sram_only["total_cycles"]
     _require(isinstance(total_cycles, int), "Vela did not report cycle estimates")
     analytical_member_us = total_cycles / target_clock * 1_000_000.0
+    float_contract_passed = parity["status"] == "PASS"
     result: dict[str, object] = {
-        "status": M2_VERDICT,
+        "status": (
+            M21_VERDICT
+            if float_contract_passed
+            else "FLOAT_EXPORT_NUMERICAL_CONTRACT_REVALIDATION_FAIL"
+        ),
         "reference": {
             "candidate_id": model_manifest["candidate_id"],
             "role": model_manifest["engineering_role"],
@@ -607,18 +631,27 @@ def evaluate_export_feasibility(
             "deadline_us": 1000,
             "measured_on_board": False,
             "qualification": (
-                "operator mapping is viable, but progression is blocked by the "
-                "frozen Float tolerance failure; target-specific memory "
-                "configuration, INT8 parity, preprocessing, invocation overhead, "
-                "and board timing also remain"
+                "the Research-owned batch-one Float contract passes and operator "
+                "mapping remains viable; target-specific memory configuration, "
+                "formal INT8 parity, preprocessing, invocation overhead, and "
+                "board timing remain"
+                if float_contract_passed
+                else "the Research-owned batch-one Float contract did not pass; "
+                "formal INT8 work remains blocked"
             ),
         },
         "boundary": {
             "int8_parity_completed": False,
+            "m3_authorized": float_contract_passed,
             "firmware_started": False,
             "board_state_modified": False,
             "research_semantics_modified": False,
         },
+        "next_milestone": (
+            "INT8_QUANTIZATION_AND_PARITY"
+            if float_contract_passed
+            else "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLUTION"
+        ),
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(

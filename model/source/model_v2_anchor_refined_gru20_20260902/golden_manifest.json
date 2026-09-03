@@ -1,6 +1,25 @@
 {
   "decision_probe": "separate synthetic probability trace exercises inclusive threshold, reset, fifth-sample assertion, and held assertion",
+  "deployment_reference": {
+    "contract": "float_numerical_contract.json",
+    "execution_shape": [
+      1,
+      20,
+      80
+    ],
+    "one_causal_endpoint_per_invocation": true,
+    "path": "golden_outputs/deployment_runtime_chain.npz"
+  },
   "discrete_parity": "exact",
+  "historical_reference": {
+    "execution_shape": [
+      121,
+      20,
+      80
+    ],
+    "path": "golden_outputs/runtime_chain.npz",
+    "status": "preserved M1 batch-N evidence, not canonical deployment execution"
+  },
   "numeric_tolerance": {
     "absolute": 1e-06,
     "relative": 1e-06

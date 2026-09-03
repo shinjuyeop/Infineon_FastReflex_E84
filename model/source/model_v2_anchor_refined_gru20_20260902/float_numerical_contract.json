@@ -1,0 +1,183 @@
+{
+  "candidate_id": "model_v2_anchor_refined_gru20_20260902",
+  "canonical_execution": {
+    "batch_size": 1,
+    "ensemble_mean_dtype": "float64",
+    "golden_generation": "sequential independent PyTorch calls, one [1,20,80] window per member invocation",
+    "golden_output": "golden_outputs/deployment_runtime_chain.npz",
+    "hidden_state": "zero_initialized_for_every_invocation_no_carry",
+    "input_dtype": "float32",
+    "input_shape": [
+      1,
+      20,
+      80
+    ],
+    "member_logit_dtype": "float32",
+    "member_probability_storage_dtype": "float64",
+    "member_softmax_compute_dtype": "float32",
+    "one_causal_endpoint_per_invocation": true,
+    "output_shape_per_member": [
+      1,
+      2
+    ],
+    "window_order": "oldest_to_current"
+  },
+  "continuous_parity": {
+    "ensemble_hazard_probability": {
+      "absolute": 1e-06,
+      "rationale": "retains the reviewed M1 bound; three-member Float64 averaging reduces the observed batch-size maximum to 2.7318795520203665e-07",
+      "relative": 1e-06
+    },
+    "member_hazard_probability": {
+      "absolute": 1e-06,
+      "rationale": "retains the reviewed M1 bound; the Research batch-size maximum is 5.9604644775390625e-07",
+      "relative": 1e-06
+    },
+    "member_logits": {
+      "absolute": 4e-06,
+      "rationale": "absolute-only bound exceeds the 2.9802322387695312e-06 maximum produced by faithful Float32 PyTorch batch-size changes; relative error is unsuitable for logits near zero",
+      "relative": 0.0
+    },
+    "preprocessing_and_model_windows": {
+      "absolute": 1e-06,
+      "layers": [
+        "base_features",
+        "causal_features",
+        "normalized_features",
+        "model_windows"
+      ],
+      "rationale": "retains the reviewed M1 independent-host Float allowance",
+      "relative": 1e-06
+    }
+  },
+  "engineering_role": "DEPLOYMENT_ENGINEERING_REFERENCE_MODEL",
+  "exact_parity": {
+    "consecutive_threshold_count": "exact",
+    "persistence": "five_consecutive_1ms_samples_reset_on_failure",
+    "reflex_onset": "exact",
+    "reflex_required": "exact",
+    "shape_and_dtype": "exact_for_every_layer",
+    "threshold_comparison": "probability_greater_than_or_equal_to_0.99",
+    "threshold_crossing": "exact"
+  },
+  "m3_inheritance": {
+    "float_contract_must_pass_before_int8_evaluation": true,
+    "float_reference": "canonical batch-one deployment golden",
+    "int8_tolerances": "must_be_defined_and_justified_in_m3",
+    "threshold_persistence_and_final_decisions_remain_exact": true
+  },
+  "protected_holdout_access": false,
+  "provenance": {
+    "candidate_record_commit": "8a4970cad8778e100751d4f6a8ae4f15b5eb4c03",
+    "candidate_source_commit": "9bef402e900523e4b5477bf47cd91c0adddf9b2a",
+    "checkpoint_sha256": [
+      "7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9",
+      "3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39",
+      "fe96dfeb8461871044de0f8672190680ce46164a1c28efbe6738d22f9d439bbd"
+    ],
+    "contract_source_commit": "9b1f008c0a665dd02f2243f92203e66406fcaeb8",
+    "feature_schema_sha256": "fe5b6c1c5eca8207a01c62e156f1fe843f95f0c5001d179a12c4b2b16ddf8adb",
+    "normalizer_sha256": "e0d796e8840e0cd38bc7d0ed222b668187a8a661748cf8506d4141657f88e92a",
+    "scientific_verdict_commit": "7fdb61940a6fc60edbd0b2ad5e0726b5eb07d3b6"
+  },
+  "schema_version": 1,
+  "scientific_verdict": "MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED",
+  "scope": "deployment_float_parity_only_not_scientific_evidence",
+  "threshold_sensitivity": {
+    "closest_probability": 0.9909300009409586,
+    "closest_window_index": 73,
+    "crossing_count": 22,
+    "margin_to_permitted_error_ratio": 467.1188542636312,
+    "minimum_above_margin": 0.0009300009409586307,
+    "minimum_absolute_margin": 0.0009300009409586307,
+    "minimum_below_margin": 0.0021402939160665158,
+    "permitted_numerical_error_at_closest_probability": 1.9909300009409586e-06,
+    "reflex_onset_window_indices": [
+      46,
+      71,
+      88
+    ],
+    "threshold": 0.99
+  },
+  "variability_evidence": {
+    "batch_one_repeated_exact": true,
+    "batch_size_sweep": {
+      "1": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 0.0,
+        "member_hazard_probability_max_absolute": 0.0,
+        "member_logits_max_absolute": 0.0
+      },
+      "121": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.682209014892578e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.9802322387695312e-06
+      },
+      "16": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.682209014892578e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.9802322387695312e-06
+      },
+      "2": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.86102294921875e-06
+      },
+      "3": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.6226043701171875e-06
+      },
+      "32": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.682209014892578e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.9802322387695312e-06
+      },
+      "4": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.86102294921875e-06
+      },
+      "5": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.86102294921875e-06
+      },
+      "64": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.682209014892578e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.9802322387695312e-06
+      },
+      "7": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.6226043701171875e-06
+      },
+      "8": {
+        "discrete_runtime_outputs_exact": true,
+        "ensemble_hazard_probability_max_absolute": 2.7318795520203665e-07,
+        "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+        "member_logits_max_absolute": 2.86102294921875e-06
+      }
+    },
+    "historical_batch_121_vs_batch_1": {
+      "discrete_runtime_outputs_exact": true,
+      "ensemble_hazard_probability_max_absolute": 2.682209014892578e-07,
+      "member_hazard_probability_max_absolute": 5.960464477539062e-07,
+      "member_logits_max_absolute": 2.9802322387695312e-06
+    },
+    "reference_batch_size": 1,
+    "source": "non-protected V2_VALIDATION golden slice",
+    "window_count": 121
+  },
+  "verdict": "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
+}
