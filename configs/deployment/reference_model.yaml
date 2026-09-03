@@ -27,3 +27,34 @@ parity:
   absolute_tolerance: 1.0e-6
   relative_tolerance: 1.0e-6
   discrete_decisions: exact
+
+export_feasibility:
+  member_seeds: [20260828, 20260829, 20260830]
+  operator_probe_seed: 20260828
+  float_directory: model/converted
+  quantized_directory: model/quantized
+  vela_directory: model/vela/export_feasibility
+  result_path: reports/generated/export_target_feasibility.json
+  target:
+    accelerator_config: ethos-u55-128
+    device_core_clock_hz: 400000000
+    generic_system_config: Ethos_U55_High_End_Embedded
+  expected_float_operators:
+    ADD: 80
+    FULLY_CONNECTED: 21
+    LOGISTIC: 40
+    MUL: 40
+    SPLIT: 20
+    STRIDED_SLICE: 60
+    SUB: 20
+    TANH: 20
+  expected_int8_probe_operators:
+    ADD: 80
+    FULLY_CONNECTED: 21
+    LOGISTIC: 40
+    MUL: 40
+    SOFTMAX: 1
+    SPLIT: 20
+    STRIDED_SLICE: 60
+    SUB: 20
+    TANH: 20

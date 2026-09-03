@@ -25,6 +25,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
     )
+    export = subparsers.add_parser(
+        "evaluate-export",
+        help="export frozen members and evaluate TFLite/Vela operator feasibility",
+    )
+    export.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
+    export.add_argument(
+        "--output-root",
+        type=Path,
+        help="override generated output root (primarily for isolated verification)",
+    )
     return parser
 
 
@@ -41,6 +55,14 @@ def main() -> int:
             result = verify_reference_handoff(REPOSITORY_ROOT, args.config)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
+        if args.command == "evaluate-export":
+            from fastreflex_e84.conversion import evaluate_export_feasibility
+
+            result = evaluate_export_feasibility(
+                REPOSITORY_ROOT, args.config, args.output_root
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result["float_export"]["parity"]["status"] == "PASS" else 2
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))
     raise AssertionError("unreachable command")

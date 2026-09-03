@@ -8,9 +8,11 @@ Research repository에서 검증·동결된 Float model을 받아 KIT_PSE84_AI /
 
 ```text
 Frozen Float Model
-  -> Quantization
-  -> Target Conversion
-  -> Vela
+  -> Float TFLite Export
+  -> Float Parity Gate
+  -> Minimum INT8 Operator Probe
+  -> Vela / U55 Mapping
+  -> Formal INT8 Parity
   -> Firmware Integration
   -> E84
   -> HIL
@@ -51,17 +53,20 @@ Frozen Float Model
 
 ## Current Status
 
-`REFERENCE_MODEL_HANDOFF_AND_HOST_FLOAT_PARITY_PASS`
+`FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS`
 
-Exact `model_v2_anchor_refined_gru20_20260902` handoff의 14개 payload와 outer manifest를 검증했고, Research package를 import하지 않는 E84 Host Float 구현이 raw IMU6부터 각 GRU member, ensemble, inclusive threshold, 5 ms persistence와 최종 decision까지 layered golden parity를 통과했다. 모든 numeric layer의 현재 최대 절대 오차는 0이며 discrete parity는 exact다.
+M1 handoff/Host Float parity는 유지된다. M2에서 exact three-member GRU20을 static Float32 TFLite built-in graph로 변환했다. 변환된 probability, ensemble, threshold, 5 ms persistence와 최종 decision은 golden evidence와 일치하지만, seed `20260829`의 logit 두 개가 frozen `atol=rtol=1e-6` 범위를 벗어나 Float conversion gate는 FAIL이다. 최대 절대 logit 오차는 `2.682209e-6`이다.
 
-이 candidate의 role은 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`이고 scientific verdict는 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Release/real-robot/safety 모델이 아니다. INT8, Vela, firmware, board execution과 HIL은 시작하지 않았다.
+실제 Vela 4.2.0 결과 Float graph는 `301 CPU / 0 NPU`이고, non-protected M1 golden windows만 사용한 최소 INT8+softmax operator probe는 `0 CPU / 192 NPU`로 Ethos-U55-128에 전부 배치된다. 이 probe는 INT8 parity나 quantization sign-off가 아니다. Generic Arm memory configuration의 cycle estimate도 board 성능 증거가 아니다. 따라서 architecture-level operator blocker는 발견되지 않았지만, frozen Float numerical contract를 해결하기 전 formal INT8 milestone로 진행하지 않는다.
+
+Candidate role은 계속 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`, scientific verdict는 계속 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Firmware, flash, board execution과 HIL은 시작하지 않았다.
 
 ## 구조
 
 ```text
 configs/deployment/       deployment configuration
 model/source/             검토된 frozen Float handoff와 golden evidence
+model/converted/          생성된 Float target-format model 경계
 model/quantized/          생성된 quantized model 경계
 model/vela/               생성된 Vela output 경계
 src/fastreflex_e84/       독립 Host Float runtime과 handoff validator
@@ -70,22 +75,27 @@ firmware/                 향후 ModusToolbox project 경계
 hil/host/                 향후 host-side HIL 경계
 docs/                     pipeline 및 model contract
 reports/                  runtime validation 보고서 경계
-tests/                    향후 test suite
+tests/                    handoff, parity와 operator-feasibility test suite
 ```
 
 전체 흐름은 [`docs/deployment_pipeline.md`](docs/deployment_pipeline.md), tool 상태는 [`tools/README.md`](tools/README.md), firmware 경계는 [`firmware/README.md`](firmware/README.md), HIL 경계는 [`hil/README.md`](hil/README.md)를 참고한다.
 
-## M1 verification
+## Verification
 
 Python 3.10 이상에서 다음 명령으로 handoff와 layered parity를 검증한다.
 
 ```bash
 python tools/deployment.py verify-reference
+python tools/deployment.py evaluate-export
 PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
 
-현재 Python 환경과 M1 dependency만 확인하려면:
+현재 `evaluate-export`는 evidence JSON을 완전히 생성한 뒤 Float gate 실패를 반영해 exit code 2를 반환한다. 이는 expected fail-closed 결과다.
+
+현재 Python, M2 conversion/Vela 도구와 KitProg USB 열거 상태를 확인하려면:
 
 ```bash
 python tools/verify_environment.py
 ```
+
+생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. M2 evidence와 재현 명령은 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md)에 있다.

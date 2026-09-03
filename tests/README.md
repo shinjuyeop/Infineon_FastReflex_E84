@@ -12,6 +12,14 @@ The M1 suite protects:
 - exact threshold, consecutive-count, onset and final decision parity;
 - rejection of raw checksum drift and semantically changed feature order even if an attacker updates the inner manifest.
 
+The M2 suite additionally protects:
+
+- three-member static Float32 TFLite export and exact graph inventory;
+- explicit preservation of the current two-logit frozen-tolerance failure;
+- downstream probability tolerance and exact decision parity;
+- Float `100% CPU` and minimum INT8+softmax `100% NPU` Vela placement;
+- the boundary that INT8 parity, firmware, and board execution are not complete.
+
 Run:
 
 ```bash

@@ -14,6 +14,8 @@ dist/
 .coverage
 
 # Generated deployment outputs
+model/converted/*
+!model/converted/.gitkeep
 model/quantized/*
 !model/quantized/.gitkeep
 model/vela/*
