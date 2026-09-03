@@ -1,0 +1,50 @@
+{
+  "channels": [
+    {
+      "index": 0,
+      "name": "accel_x",
+      "unit": "m/s^2"
+    },
+    {
+      "index": 1,
+      "name": "accel_y",
+      "unit": "m/s^2"
+    },
+    {
+      "index": 2,
+      "name": "accel_z",
+      "unit": "m/s^2"
+    },
+    {
+      "index": 3,
+      "name": "gyro_x",
+      "unit": "rad/s"
+    },
+    {
+      "index": 4,
+      "name": "gyro_y",
+      "unit": "rad/s"
+    },
+    {
+      "index": 5,
+      "name": "gyro_z",
+      "unit": "rad/s"
+    }
+  ],
+  "dtype": "float32",
+  "frame": "pelvis_local",
+  "hardware_mapping_status": "NOT_VALIDATED",
+  "hardware_requirement": "axis, sign, scale, bandwidth, timestamp, and acceleration/gravity convention must reproduce this schema before target validation",
+  "reference_location": "pelvis frame origin",
+  "reference_orientation": "identity relative to pelvis body frame",
+  "reference_sensor": "MuJoCo accelerometer and gyro at site imu",
+  "sample_period_ms": 1,
+  "sample_rate_hz": 1000,
+  "schema_version": 1,
+  "sensor": "PELVIS_IMU6",
+  "shape": [
+    "samples",
+    6
+  ],
+  "software_filtering": "none before causal feature extraction"
+}

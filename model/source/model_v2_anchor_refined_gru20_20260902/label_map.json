@@ -1,0 +1,14 @@
+{
+  "control_output": {
+    "false": "NORMAL",
+    "true": "REFLEX_REQUIRED"
+  },
+  "ensemble_probability": "arithmetic mean of three member probabilities",
+  "hazard_probability": "softmax(logits, dim=1)[1] per member",
+  "logit_and_softmax_class_index": {
+    "0": "NORMAL",
+    "1": "HAZARD_REFLEX_REQUIRED"
+  },
+  "schema_version": 1,
+  "terrain_used_as_hazard_gate": false
+}

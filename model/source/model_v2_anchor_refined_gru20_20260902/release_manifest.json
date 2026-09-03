@@ -1,0 +1,21 @@
+{
+  "file_count": 14,
+  "files": {
+    "golden_inputs/decision_probe.npz": "fe9a52f5706e7d8bda246d68196b7de1d363ed724adbc611538a57ec4fe33a4c",
+    "golden_inputs/runtime_chain.npz": "2bf3b72053a3b28d065e4504410729da0c60f079dc8f8cef230acd9827357f2d",
+    "golden_manifest.json": "e5792fbb0d0483288d57d02b0ca12ea720fe6cdbe849f851af01fec556838c79",
+    "golden_outputs/decision_probe.npz": "8166641f453aa037654d12dbc1295dda144c294c27e73c839f320855ccd4243d",
+    "golden_outputs/runtime_chain.npz": "62c431297aa9e5cf4c2d4dbad51ed496602c8eb92662bb8e878634ae06e6f903",
+    "label_map.json": "46cb4e02897c86cf35465592c4f9d7c90400c9bfa8a9068980eecb2f7ec9f0c6",
+    "metrics.json": "ee21e82b2820b0d242e3263708f839ead76878bb0001a85dffa8232251a1d833",
+    "model_manifest.json": "d7fc963cfdd9b8b647b3a4b75f740d6f6c2f02c5c6e505fcac1bb8c9ab84f937",
+    "models/member_seed20260828.pt": "7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9",
+    "models/member_seed20260829.pt": "3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39",
+    "models/member_seed20260830.pt": "fe96dfeb8461871044de0f8672190680ce46164a1c28efbe6738d22f9d439bbd",
+    "normalizer.json": "e0d796e8840e0cd38bc7d0ed222b668187a8a661748cf8506d4141657f88e92a",
+    "preprocessing.json": "d4184f2669823622d94870778305a2711fc0900cdb5b4fc879d34aa5521b69ab",
+    "sensor_schema.json": "9c8c86b9901edd558e68d59af9782085a4b9e2fb4ef7d38dce2096e27fa0457a"
+  },
+  "release_id": "model_v2_anchor_refined_gru20_20260902",
+  "schema_version": 1
+}

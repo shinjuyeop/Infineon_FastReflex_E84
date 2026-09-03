@@ -1,19 +1,30 @@
 # Deployment Pipeline
 
-현재 milestone은 deployment 경계만 정의하며 실제 변환이나 target 실행을 하지 않는다.
+The deployment stages are deliberately gated:
 
 ```text
 Reviewed Frozen Float Model + Contract
-  -> Contract and checksum validation
-  -> Quantization
-  -> Target conversion
-  -> Vela
-  -> Firmware integration
-  -> KIT_PSE84_AI / PSoC Edge E84
-  -> HIL with golden vectors
-  -> Runtime validation report
+  -> M1 Contract/checksum validation + independent Host Float parity  [PASS]
+  -> Export and target-operator feasibility                            [NEXT]
+  -> INT8 quantization and parity                                      [NOT STARTED]
+  -> Vela / Ethos-U55 compilation                                     [NOT STARTED]
+  -> Firmware integration                                             [NOT STARTED]
+  -> KIT_PSE84_AI execution                                           [NOT STARTED]
+  -> HIL and runtime latency/RAM/Flash validation                      [NOT STARTED]
 ```
 
-각 단계는 입력 artifact, tool version, configuration, 출력 checksum을 추적할 수 있어야 한다. 변환 결과는 source model과 분리하고, 같은 기능의 canonical tool 하나를 config로 구동한다.
+## Completed gate: M1
 
-Dataset 생성, training, architecture exploration은 이 pipeline 밖이며 research repository가 담당한다. Acceptance criteria와 실제 toolchain version은 frozen model 계약이 준비된 뒤 고정한다.
+`REFERENCE_MODEL_HANDOFF_AND_HOST_FLOAT_PARITY` accepts the exact non-release engineering reference through [`configs/deployment/reference_model.yaml`](../configs/deployment/reference_model.yaml). The validator checks the outer manifest pin, all 14 payload hashes, provenance, scientific/non-release status, sensor schema, feature order, normalization, architecture, ensemble, and decision contract before loading model weights.
+
+The E84 host implementation is independent of the Research Python package. It reproduces every numeric golden layer within `atol=rtol=1e-6` and requires exact endpoint/decision parity. Run it with:
+
+```bash
+python tools/deployment.py verify-reference
+```
+
+## Next gate
+
+The exact next milestone is `EXPORT_AND_TARGET_OPERATOR_FEASIBILITY`. It should select a target-compatible export representation and determine whether the GRU, per-window zero hidden state, softmax, three-member mean, and surrounding preprocessing/decision operations map cleanly to the supported E84/Ethos-U55 toolchain.
+
+No M1 result authorizes quantization or firmware work. The next gate must preserve source/conversion/build/runtime provenance separately and must not reinterpret target parity as scientific validation.

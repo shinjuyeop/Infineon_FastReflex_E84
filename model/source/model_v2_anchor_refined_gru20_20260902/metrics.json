@@ -1,0 +1,103 @@
+{
+  "candidate_id": "model_v2_anchor_refined_gru20_20260902",
+  "engineering_role": "DEPLOYMENT_ENGINEERING_REFERENCE_MODEL",
+  "final_sensor_architecture": false,
+  "generalization_holdout": {
+    "hazard": {
+      "correct": 25,
+      "total": 28
+    },
+    "premature": {
+      "count": 2,
+      "total": 28
+    },
+    "primary_gate_status": "GENERALIZATION_HOLDOUT_PRIMARY_GATES_FAIL",
+    "primary_no_hazard": {
+      "correct": 5,
+      "total": 8
+    },
+    "simulation_status": "SIMULATION_GENERALIZATION_EVIDENCE_NOT_SUPPORTED",
+    "slip": {
+      "correct": 11,
+      "total": 14
+    },
+    "support": {
+      "correct": 14,
+      "total": 14
+    },
+    "verdict": "MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED"
+  },
+  "generalization_validation": {
+    "hazard": {
+      "correct": 25,
+      "total": 26
+    },
+    "premature": {
+      "count": 1,
+      "total": 26
+    },
+    "primary_gate_status": "GENERALIZATION_PRIMARY_GATES_FAIL",
+    "primary_no_hazard": {
+      "correct": 10,
+      "total": 10
+    },
+    "slip": {
+      "correct": 11,
+      "total": 12
+    },
+    "support": {
+      "correct": 14,
+      "total": 14
+    }
+  },
+  "internal_validation": {
+    "confirmed_no_hazard": {
+      "correct": 26,
+      "total": 26
+    },
+    "hazard": {
+      "correct": 59,
+      "total": 64
+    },
+    "premature": {
+      "count": 5,
+      "total": 64
+    },
+    "slip": {
+      "correct": 30,
+      "total": 35
+    },
+    "support": {
+      "correct": 30,
+      "total": 30
+    },
+    "verdict": "MODEL_V2_INTERNAL_VALIDATION_NOT_SUPPORTED"
+  },
+  "metrics_sources": [
+    {
+      "path": "artifacts/runs/20260902_model_v2_anchor_refined_training/candidate_evaluation_freeze.json",
+      "sha256": "cad3902137b622c3a3d15ecb3d6c3bb31ee9751f3605fb8d43daa6ac81695c07"
+    },
+    {
+      "path": "artifacts/runs/20260902_model_v2_generalization_holdout_one_shot_evaluation/evaluation_result.json",
+      "sha256": "2948449fb818335ec2e03ac0b90c34280714bac53570e05f3e67ae1c9bd839da"
+    },
+    {
+      "path": "artifacts/runs/20260902_model_v2_generalization_holdout_one_shot_evaluation/primary_metrics.json",
+      "sha256": "a0e4b9436c559df6f6966debdfa17b1e22ca494299db9b9ec742650f354e8615"
+    },
+    {
+      "path": "reports/20260902_model_v2_generalization_holdout_one_shot_evaluation.md",
+      "sha256": "2f37ebdaad97c1d5c9f18082223a2281cd0a365e3cae8cd97a1b1688a2a3d7b3"
+    },
+    {
+      "path": "reports/20260902_model_v2_holdout_failure_interpretation.md",
+      "sha256": "dfcacc050e89d2a2cc5b12cc53b3f11ea9f633a0aeb09d3aad2ea36027adc80e"
+    }
+  ],
+  "quantization_authorized_by_this_handoff": false,
+  "real_robot_supported": false,
+  "release_model": false,
+  "safety_certified": false,
+  "schema_version": 1
+}

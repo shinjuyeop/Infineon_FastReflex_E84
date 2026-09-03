@@ -1,0 +1,107 @@
+{
+  "architecture": {
+    "architecture_sha256": "ae4753699399aa7e4a93639935e085156ef28ed100a77058d7308eb1549aa897",
+    "bidirectional": false,
+    "classifier": "linear_32_to_2",
+    "dropout": 0.0,
+    "hidden_size": 32,
+    "input_dtype": "float32",
+    "input_shape": [
+      20,
+      80
+    ],
+    "input_size": 80,
+    "layers": 1,
+    "member_output_dtype": "float32",
+    "member_output_shape": [
+      2
+    ],
+    "model_family": "gru",
+    "parameters": 11010
+  },
+  "candidate_id": "model_v2_anchor_refined_gru20_20260902",
+  "class_index": {
+    "0": "NORMAL",
+    "1": "HAZARD_REFLEX_REQUIRED"
+  },
+  "engineering_role": "DEPLOYMENT_ENGINEERING_REFERENCE_MODEL",
+  "ensemble_members": [
+    {
+      "path": "models/member_seed20260828.pt",
+      "seed": 20260828,
+      "sha256": "7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9",
+      "source_path": "artifacts/runs/20260902_model_v2_anchor_refined_training/checkpoints/model_v2_anchor_refined_gru_history20_round3_seed20260828.pt"
+    },
+    {
+      "path": "models/member_seed20260829.pt",
+      "seed": 20260829,
+      "sha256": "3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39",
+      "source_path": "artifacts/runs/20260902_model_v2_anchor_refined_training/checkpoints/model_v2_anchor_refined_gru_history20_round3_seed20260829.pt"
+    },
+    {
+      "path": "models/member_seed20260830.pt",
+      "seed": 20260830,
+      "sha256": "fe96dfeb8461871044de0f8672190680ce46164a1c28efbe6738d22f9d439bbd",
+      "source_path": "artifacts/runs/20260902_model_v2_anchor_refined_training/checkpoints/model_v2_anchor_refined_gru_history20_round3_seed20260830.pt"
+    }
+  ],
+  "framework": "pytorch",
+  "framework_version_at_export": "2.13.0+cpu",
+  "golden_manifest": "golden_manifest.json",
+  "model_format": "fastreflex_pytorch_checkpoint_dict",
+  "normalizer": {
+    "path": "normalizer.json",
+    "sha256": "e0d796e8840e0cd38bc7d0ed222b668187a8a661748cf8506d4141657f88e92a",
+    "source_path": "artifacts/runs/20260901_model_v2_data_only_training/normalization/gru_history20.json"
+  },
+  "numpy_version_at_export": "1.23.5",
+  "provenance": {
+    "candidate_evaluation_freeze": {
+      "path": "artifacts/runs/20260902_model_v2_anchor_refined_training/candidate_evaluation_freeze.json",
+      "sha256": "cad3902137b622c3a3d15ecb3d6c3bb31ee9751f3605fb8d43daa6ac81695c07"
+    },
+    "candidate_freeze": {
+      "path": "artifacts/runs/20260902_model_v2_anchor_refined_training/candidate_freeze.json",
+      "sha256": "95dab53275aa77ded36b479c3633ab879a1331cb2c96bd0eb014de2be99bd85f"
+    },
+    "candidate_record_commit": "8a4970cad8778e100751d4f6a8ae4f15b5eb4c03",
+    "candidate_source_commit": "9bef402e900523e4b5477bf47cd91c0adddf9b2a",
+    "packaged_date": "2026-09-03",
+    "packaging_source_commit": "3f8cb4f28af5a88750212519d384a2c4f552769b",
+    "scientific_verdict_commit": "7fdb61940a6fc60edbd0b2ad5e0726b5eb07d3b6",
+    "source_repository": "https://github.com/shinjuyeop/Infineon_FastReflex",
+    "timezone": "Asia/Seoul"
+  },
+  "release_model": false,
+  "runtime": {
+    "ensemble": "arithmetic_mean_of_member_hazard_softmax_probabilities",
+    "ensemble_mean_dtype": "float64",
+    "ensemble_membership": [
+      20260828,
+      20260829,
+      20260830
+    ],
+    "feature_schema_sha256": "fe5b6c1c5eca8207a01c62e156f1fe843f95f0c5001d179a12c4b2b16ddf8adb",
+    "gru_hidden_state": "zero_initialized_for_each_window_no_cross_window_carry",
+    "hazard_class_index": 1,
+    "history_samples": 20,
+    "member_probability_storage_dtype": "float64",
+    "member_softmax_compute_dtype": "float32",
+    "output_hold": "asserted_while_current_streak_is_at_least_five_and_deasserted_immediately_on_failure",
+    "persistence": "consecutive_samples_reset_to_zero_on_failure",
+    "persistence_samples": 5,
+    "replay_stride_samples": 1,
+    "sample_rate_hz": 1000,
+    "threshold": 0.99,
+    "threshold_comparison": "greater_than_or_equal"
+  },
+  "schema_version": 1,
+  "scientific_status": {
+    "engineering_only": true,
+    "real_robot_supported": false,
+    "safety_certified": false,
+    "simulation_status": "SIMULATION_GENERALIZATION_EVIDENCE_NOT_SUPPORTED",
+    "verdict": "MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED"
+  },
+  "status": "NON_RELEASE_ENGINEERING_REFERENCE"
+}

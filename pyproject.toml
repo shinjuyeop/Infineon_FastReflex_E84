@@ -8,7 +8,11 @@ version = "0.0.0"
 description = "Deployment workspace for FastReflex on PSoC Edge E84"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+  "numpy>=1.23",
+  "PyYAML>=6",
+  "torch>=2.2",
+]
 
-[tool.setuptools]
-packages = []
+[tool.setuptools.packages.find]
+where = ["src"]

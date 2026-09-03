@@ -2,4 +2,4 @@
 
 Quantization parity, Vela conversion, firmware integration, HIL, runtime validation 결과의 경계다. 각 보고서는 source model checksum, contract revision, toolchain version, configuration, target 정보를 추적할 수 있어야 한다.
 
-현재 생성된 보고서는 없다.
+M1 reviewed result는 [`reference_model_handoff.md`](reference_model_handoff.md)에 있다. 명령별 임시 JSON이나 arbitrary output은 commit하지 않는다.

@@ -1,0 +1,35 @@
+{
+  "decision_probe": "separate synthetic probability trace exercises inclusive threshold, reset, fifth-sample assertion, and held assertion",
+  "discrete_parity": "exact",
+  "numeric_tolerance": {
+    "absolute": 1e-06,
+    "relative": 1e-06
+  },
+  "protected_holdout_access": false,
+  "purpose": "runtime_chain_parity_only",
+  "runtime_chain": [
+    "raw_pelvis_imu6",
+    "base_features",
+    "causal_features",
+    "normalized_features",
+    "model_windows",
+    "member_logits",
+    "member_hazard_probability",
+    "ensemble_hazard_probability",
+    "threshold_crossing",
+    "consecutive_threshold_count",
+    "reflex_required",
+    "reflex_onset"
+  ],
+  "schema_version": 1,
+  "scientific_evidence": false,
+  "source": {
+    "dataset_id": "model_v2_hazard_reflex_20260901",
+    "dataset_manifest_sha256": "7a036d3485bb19a3570a3dd4a41cc990375028f7e153e85525bd4bf19cff8b25",
+    "run_id": "m2v2_dss_v_c_0250_s10",
+    "slice_start_sample": 2950,
+    "slice_stop_sample_exclusive": 3090,
+    "source_file_sha256": "54bf650db12a7ce1ecea2085864bccdd02ecc9d920922d2216cd61650bb84bd3",
+    "split": "V2_VALIDATION"
+  }
+}
