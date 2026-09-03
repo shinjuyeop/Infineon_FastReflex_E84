@@ -9,3 +9,5 @@ M2 mixed verdict와 target-operator evidence는 [`export_target_operator_feasibi
 M2.1 Research-owned batch-1 contract와 E84 revalidation 결과는 [`float_numerical_contract_resolution.md`](float_numerical_contract_resolution.md)에 있다.
 
 M3 TRAIN-only calibration, 세 member INT8 parity, threshold sensitivity와 formal-model Vela 결과는 [`int8_quantization_and_parity.md`](int8_quantization_and_parity.md)에 있다.
+
+M3.1 actual recurrent intermediate localization, focused PTQ recovery, residual numerical-contract failure와 Research return decision은 [`int8_recurrent_error_localization_and_ptq_recovery.md`](int8_recurrent_error_localization_and_ptq_recovery.md)에 있다.

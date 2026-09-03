@@ -53,6 +53,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="override generated output root (primarily for isolated verification)",
     )
+    recovery = subparsers.add_parser(
+        "evaluate-int8-recovery",
+        help="localize recurrent INT8 error and evaluate focused PTQ recovery",
+    )
+    recovery.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
+    recovery.add_argument(
+        "--output-root",
+        type=Path,
+        help="override generated output root (primarily for isolated verification)",
+    )
     return parser
 
 
@@ -86,10 +100,16 @@ def main() -> int:
                 REPOSITORY_ROOT, args.config, args.output_root
             )
             print(json.dumps(result, indent=2, sort_keys=True))
+            return 0 if result["status"] == "INT8_QUANTIZATION_AND_PARITY_PASS" else 2
+        if args.command == "evaluate-int8-recovery":
+            from fastreflex_e84.conversion import evaluate_int8_recovery
+
+            result = evaluate_int8_recovery(
+                REPOSITORY_ROOT, args.config, args.output_root
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
             return (
-                0
-                if result["status"] == "INT8_QUANTIZATION_AND_PARITY_PASS"
-                else 2
+                0 if result["boundary"]["existing_m3_numerical_contract_passed"] else 2
             )
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))

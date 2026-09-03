@@ -23,6 +23,7 @@ from .reference_runtime import MEMBER_SEEDS, apply_decision, load_ensemble
 M2_VERDICT = "FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS"
 M21_VERDICT = "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
 M3_VERDICT = "INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL"
+M31_VERDICT = "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL"
 STATE_KEYS = (
     "gru.weight_ih_l0",
     "gru.weight_hh_l0",
@@ -81,9 +82,19 @@ def _state_arrays(model: torch.nn.Module) -> dict[str, np.ndarray]:
     }
 
 
-def _concrete_gru(state: dict[str, np.ndarray], include_softmax: bool) -> Any:
+def _concrete_gru(
+    state: dict[str, np.ndarray],
+    include_softmax: bool,
+    *,
+    projection_block_width: int | None = None,
+) -> Any:
     """Lower the exact PyTorch reset-after GRU equation to static primitives."""
     tf = _tensorflow()
+    if projection_block_width is not None:
+        _require(
+            projection_block_width > 0 and 32 % projection_block_width == 0,
+            "GRU projection block width must divide the frozen hidden size",
+        )
 
     class FrozenMember(tf.Module):
         def __init__(self) -> None:
@@ -97,40 +108,85 @@ def _concrete_gru(state: dict[str, np.ndarray], include_softmax: bool) -> Any:
         )
         def infer(self, window: Any) -> dict[str, Any]:
             hidden = tf.zeros([1, 32], tf.float32)
-            # PyTorch projects all timesteps through W_ih as one contiguous
-            # linear call before the recurrent loop. Keep the same batching so
-            # the target Float accumulation follows the source backend closely.
-            input_gates_sequence = (
-                tf.matmul(
-                    tf.reshape(window, [20, 80]),
-                    self.gru_weight_ih_l0,
-                    transpose_b=True,
-                )
-                + self.gru_bias_ih_l0
-            )
-            input_reset_sequence, input_update_sequence, input_new_sequence = tf.split(
-                input_gates_sequence, 3, axis=1
-            )
-            for timestep in range(20):
-                hidden_gates = (
+            flattened = tf.reshape(window, [20, 80])
+            if projection_block_width is None:
+                # PyTorch projects all timesteps through W_ih as one contiguous
+                # linear call before the recurrent loop. Keep the same batching so
+                # the target Float accumulation follows the source backend closely.
+                input_gates_sequence = (
                     tf.matmul(
-                        hidden,
-                        self.gru_weight_hh_l0,
+                        flattened,
+                        self.gru_weight_ih_l0,
                         transpose_b=True,
                     )
-                    + self.gru_bias_hh_l0
+                    + self.gru_bias_ih_l0
                 )
-                input_reset = input_reset_sequence[timestep : timestep + 1]
-                input_update = input_update_sequence[timestep : timestep + 1]
-                input_new = input_new_sequence[timestep : timestep + 1]
-                hidden_reset, hidden_update, hidden_new = tf.split(
-                    hidden_gates, 3, axis=1
-                )
-                reset = tf.sigmoid(input_reset + hidden_reset)
-                update = tf.sigmoid(input_update + hidden_update)
-                new = tf.tanh(input_new + reset * hidden_new)
-                # This is PyTorch's operation order: n + z * (h - n).
-                hidden = new + update * (hidden - new)
+                (
+                    input_reset_sequence,
+                    input_update_sequence,
+                    input_new_sequence,
+                ) = tf.split(input_gates_sequence, 3, axis=1)
+                for timestep in range(20):
+                    hidden_gates = (
+                        tf.matmul(
+                            hidden,
+                            self.gru_weight_hh_l0,
+                            transpose_b=True,
+                        )
+                        + self.gru_bias_hh_l0
+                    )
+                    input_reset = input_reset_sequence[timestep : timestep + 1]
+                    input_update = input_update_sequence[timestep : timestep + 1]
+                    input_new = input_new_sequence[timestep : timestep + 1]
+                    hidden_reset, hidden_update, hidden_new = tf.split(
+                        hidden_gates, 3, axis=1
+                    )
+                    reset = tf.sigmoid(input_reset + hidden_reset)
+                    update = tf.sigmoid(input_update + hidden_update)
+                    new = tf.tanh(input_new + reset * hidden_new)
+                    # This is PyTorch's operation order: n + z * (h - n).
+                    hidden = new + update * (hidden - new)
+            else:
+                blocks_per_gate = 32 // projection_block_width
+                block_count = 3 * blocks_per_gate
+                input_weights = tf.split(self.gru_weight_ih_l0, block_count, axis=0)
+                input_biases = tf.split(self.gru_bias_ih_l0, block_count)
+                hidden_weights = tf.split(self.gru_weight_hh_l0, block_count, axis=0)
+                hidden_biases = tf.split(self.gru_bias_hh_l0, block_count)
+                input_blocks = [
+                    tf.matmul(flattened, weight, transpose_b=True) + bias
+                    for weight, bias in zip(input_weights, input_biases)
+                ]
+                for timestep in range(20):
+                    hidden_blocks = [
+                        tf.matmul(hidden, weight, transpose_b=True) + bias
+                        for weight, bias in zip(hidden_weights, hidden_biases)
+                    ]
+                    next_hidden = []
+                    for block in range(blocks_per_gate):
+                        reset = tf.sigmoid(
+                            input_blocks[block][timestep : timestep + 1]
+                            + hidden_blocks[block]
+                        )
+                        update = tf.sigmoid(
+                            input_blocks[blocks_per_gate + block][
+                                timestep : timestep + 1
+                            ]
+                            + hidden_blocks[blocks_per_gate + block]
+                        )
+                        new = tf.tanh(
+                            input_blocks[2 * blocks_per_gate + block][
+                                timestep : timestep + 1
+                            ]
+                            + reset * hidden_blocks[2 * blocks_per_gate + block]
+                        )
+                        start = block * projection_block_width
+                        end = start + projection_block_width
+                        previous = (
+                            hidden if blocks_per_gate == 1 else hidden[:, start:end]
+                        )
+                        next_hidden.append(new + update * (previous - new))
+                    hidden = tf.concat(next_hidden, axis=1)
             logits = (
                 tf.matmul(hidden, self.classifier_weight, transpose_b=True)
                 + self.classifier_bias
@@ -167,10 +223,15 @@ def _int8_tflite(
     representative_windows: np.ndarray,
     *,
     include_softmax: bool,
+    projection_block_width: int | None = None,
 ) -> bytes:
     """Fully quantize one frozen member using explicit INT8 graph IO."""
     tf = _tensorflow()
-    module, concrete = _concrete_gru(state, include_softmax=include_softmax)
+    module, concrete = _concrete_gru(
+        state,
+        include_softmax=include_softmax,
+        projection_block_width=projection_block_width,
+    )
 
     def representative_dataset() -> Any:
         for window in representative_windows:
@@ -317,13 +378,11 @@ def _run_int8_model(
     outputs = interpreter.get_output_details()
     _require(len(inputs) == len(outputs) == 1, "unexpected INT8 TFLite IO count")
     _require(
-        list(inputs[0]["shape"]) == [1, 20, 80]
-        and inputs[0]["dtype"] == np.int8,
+        list(inputs[0]["shape"]) == [1, 20, 80] and inputs[0]["dtype"] == np.int8,
         "formal INT8 input contract changed",
     )
     _require(
-        list(outputs[0]["shape"]) == [1, 2]
-        and outputs[0]["dtype"] == np.int8,
+        list(outputs[0]["shape"]) == [1, 2] and outputs[0]["dtype"] == np.int8,
         "formal INT8 output contract changed",
     )
     input_scale, input_zero = inputs[0]["quantization"]
@@ -334,7 +393,9 @@ def _run_int8_model(
     saturation_count = 0
     for window in windows:
         unbounded = np.rint(window / input_scale + input_zero)
-        saturation_count += int(np.count_nonzero((unbounded < -128) | (unbounded > 127)))
+        saturation_count += int(
+            np.count_nonzero((unbounded < -128) | (unbounded > 127))
+        )
         quantized = np.clip(unbounded, -128, 127).astype(np.int8)
         dequantized_input = (quantized.astype(np.float32) - input_zero) * input_scale
         input_error.append(np.abs(dequantized_input - window))
@@ -428,6 +489,398 @@ def _softmax_hazard(logits: np.ndarray) -> np.ndarray:
     exponent = np.exp(shifted).astype(np.float32, copy=False)
     denominator = np.sum(exponent, axis=2, dtype=np.float32)
     return (exponent[:, :, 1] / denominator).astype(np.float32).astype(np.float64)
+
+
+def _float_member_probabilities(
+    state: dict[str, np.ndarray], windows: np.ndarray
+) -> np.ndarray:
+    """Run the frozen reset-after equation with Float32 PyTorch primitives."""
+    values = torch.from_numpy(windows.astype(np.float32, copy=False))
+    weight_ih = torch.from_numpy(state["gru.weight_ih_l0"])
+    weight_hh = torch.from_numpy(state["gru.weight_hh_l0"])
+    bias_ih = torch.from_numpy(state["gru.bias_ih_l0"])
+    bias_hh = torch.from_numpy(state["gru.bias_hh_l0"])
+    classifier_weight = torch.from_numpy(state["classifier.weight"])
+    classifier_bias = torch.from_numpy(state["classifier.bias"])
+    with torch.no_grad():
+        projected = torch.nn.functional.linear(values, weight_ih, bias_ih)
+        input_reset, input_update, input_new = projected.chunk(3, dim=2)
+        hidden = torch.zeros((len(values), 32), dtype=torch.float32)
+        for timestep in range(20):
+            hidden_reset, hidden_update, hidden_new = torch.nn.functional.linear(
+                hidden, weight_hh, bias_hh
+            ).chunk(3, dim=1)
+            reset = torch.sigmoid(input_reset[:, timestep] + hidden_reset)
+            update = torch.sigmoid(input_update[:, timestep] + hidden_update)
+            new = torch.tanh(input_new[:, timestep] + reset * hidden_new)
+            hidden = new + update * (hidden - new)
+        logits = torch.nn.functional.linear(hidden, classifier_weight, classifier_bias)
+        probability = torch.softmax(logits, dim=1)[:, 1]
+    return probability.numpy().astype(np.float64)
+
+
+def _float_recurrent_trace(
+    state: dict[str, np.ndarray], window: np.ndarray
+) -> tuple[list[dict[str, np.ndarray]], np.ndarray, np.ndarray]:
+    """Expose the meaningful Float values in the exact static GRU equation."""
+    values = torch.from_numpy(window.astype(np.float32, copy=False))
+    weight_ih = torch.from_numpy(state["gru.weight_ih_l0"])
+    weight_hh = torch.from_numpy(state["gru.weight_hh_l0"])
+    bias_ih = torch.from_numpy(state["gru.bias_ih_l0"])
+    bias_hh = torch.from_numpy(state["gru.bias_hh_l0"])
+    projected = torch.nn.functional.linear(values, weight_ih, bias_ih)
+    input_reset, input_update, input_new = projected.chunk(3, dim=1)
+    hidden = torch.zeros((1, 32), dtype=torch.float32)
+    trace: list[dict[str, np.ndarray]] = []
+    with torch.no_grad():
+        for timestep in range(20):
+            hidden_projection = torch.nn.functional.linear(hidden, weight_hh, bias_hh)
+            hidden_reset, hidden_update, hidden_new = hidden_projection.chunk(3, dim=1)
+            reset_preactivation = input_reset[timestep : timestep + 1] + hidden_reset
+            reset_gate = torch.sigmoid(reset_preactivation)
+            reset_hidden_new = reset_gate * hidden_new
+            candidate_preactivation = (
+                input_new[timestep : timestep + 1] + reset_hidden_new
+            )
+            candidate_gate = torch.tanh(candidate_preactivation)
+            hidden_difference = hidden - candidate_gate
+            update_preactivation = input_update[timestep : timestep + 1] + hidden_update
+            update_gate = torch.sigmoid(update_preactivation)
+            update_delta = update_gate * hidden_difference
+            hidden = candidate_gate + update_delta
+            tensors = {
+                "input_projection": projected[timestep : timestep + 1],
+                "hidden_projection": hidden_projection,
+                "reset_preactivation": reset_preactivation,
+                "reset_gate": reset_gate,
+                "reset_hidden_new": reset_hidden_new,
+                "candidate_preactivation": candidate_preactivation,
+                "candidate_gate": candidate_gate,
+                "hidden_difference": hidden_difference,
+                "update_preactivation": update_preactivation,
+                "update_gate": update_gate,
+                "update_delta": update_delta,
+                "hidden_state": hidden,
+            }
+            trace.append(
+                {
+                    name: tensor.detach().cpu().numpy().copy()
+                    for name, tensor in tensors.items()
+                }
+            )
+        logits = torch.nn.functional.linear(
+            hidden,
+            torch.from_numpy(state["classifier.weight"]),
+            torch.from_numpy(state["classifier.bias"]),
+        )
+        probabilities = torch.softmax(logits, dim=1)
+    return (
+        trace,
+        logits.detach().cpu().numpy().copy(),
+        probabilities.detach().cpu().numpy().copy(),
+    )
+
+
+def _preserved_interpreter(model_path: Path) -> Any:
+    Interpreter, OpResolverType = _litert()
+    interpreter = Interpreter(
+        model_path=str(model_path),
+        experimental_op_resolver_type=(
+            OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES
+        ),
+        experimental_preserve_all_tensors=True,
+    )
+    interpreter.allocate_tensors()
+    return interpreter
+
+
+def _dequantized_tensor(
+    interpreter: Any, tensor_index: int
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    details = {
+        int(detail["index"]): detail for detail in interpreter.get_tensor_details()
+    }
+    detail = details[tensor_index]
+    raw = interpreter.get_tensor(tensor_index).copy()
+    parameters = detail["quantization_parameters"]
+    scales = np.asarray(parameters["scales"], dtype=np.float32)
+    zero_points = np.asarray(parameters["zero_points"], dtype=np.float32)
+    if not len(scales):
+        return (
+            raw.astype(np.float32),
+            raw,
+            {
+                "scale_count": 0,
+                "quantized_dimension": 0,
+            },
+        )
+    dimension = int(parameters["quantized_dimension"])
+    if len(zero_points) == 1 and len(scales) > 1:
+        zero_points = np.full(scales.shape, zero_points[0], dtype=np.float32)
+    _require(
+        len(zero_points) == len(scales),
+        "tensor quantization scale/zero-point count changed",
+    )
+    shape = [1] * raw.ndim
+    shape[dimension] = len(scales)
+    value = (raw.astype(np.float32) - zero_points.reshape(shape)) * scales.reshape(
+        shape
+    )
+    return (
+        value,
+        raw,
+        {
+            "scale_count": len(scales),
+            "scale_minimum": float(np.min(scales)),
+            "scale_maximum": float(np.max(scales)),
+            "zero_point_minimum": int(np.min(zero_points)),
+            "zero_point_maximum": int(np.max(zero_points)),
+            "quantized_dimension": dimension,
+        },
+    )
+
+
+def _stage_error_record(
+    actual: np.ndarray,
+    expected: np.ndarray,
+    raw: np.ndarray,
+    quantization: dict[str, object],
+) -> dict[str, object]:
+    _require(actual.shape == expected.shape, "recurrent trace tensor shape changed")
+    difference = actual.astype(np.float64) - expected.astype(np.float64)
+    expected_norm = float(np.linalg.norm(expected.astype(np.float64).reshape(-1)))
+    record: dict[str, object] = {
+        "shape": list(actual.shape),
+        "maximum_absolute_error": float(np.max(np.abs(difference))),
+        "mean_absolute_error": float(np.mean(np.abs(difference))),
+        "root_mean_square_error": float(np.sqrt(np.mean(difference * difference))),
+        "relative_l2_error": float(
+            np.linalg.norm(difference.reshape(-1)) / max(expected_norm, 1e-12)
+        ),
+        "float_minimum": float(np.min(expected)),
+        "float_maximum": float(np.max(expected)),
+        "dequantized_minimum": float(np.min(actual)),
+        "dequantized_maximum": float(np.max(actual)),
+        "quantization": quantization,
+    }
+    if np.issubdtype(raw.dtype, np.integer):
+        bounds = np.iinfo(raw.dtype)
+        record["quantized_endpoint_count"] = int(
+            np.count_nonzero((raw == bounds.min) | (raw == bounds.max))
+        )
+        record["element_count"] = int(raw.size)
+    return record
+
+
+def _trace_baseline_window(
+    interpreter: Any,
+    state: dict[str, np.ndarray],
+    window: np.ndarray,
+    material_error: float,
+) -> dict[str, object]:
+    """Match the actual 302-op lowered graph to the Float recurrent stages."""
+    operations = interpreter._get_ops_details()
+    expected_prefix = ["FULLY_CONNECTED", "SPLIT"] + ["STRIDED_SLICE"] * 60
+    _require(
+        len(operations) == 302
+        and [row["op_name"] for row in operations[:62]] == expected_prefix,
+        "formal baseline graph cannot be mapped to the reviewed recurrent trace",
+    )
+    input_detail = interpreter.get_input_details()[0]
+    input_scale, input_zero = input_detail["quantization"]
+    quantized_input = np.clip(
+        np.rint(window / input_scale + input_zero), -128, 127
+    ).astype(np.int8)[None, ...]
+    interpreter.set_tensor(int(input_detail["index"]), quantized_input)
+    interpreter.invoke()
+    dequantized_input = (quantized_input.astype(np.float32) - input_zero) * input_scale
+    float_trace, float_logits, float_probabilities = _float_recurrent_trace(
+        state, window
+    )
+    input_projection, raw_projection, projection_quantization = _dequantized_tensor(
+        interpreter, int(operations[0]["outputs"][0])
+    )
+    stage_order = (
+        "hidden_projection",
+        "reset_preactivation",
+        "reset_gate",
+        "reset_hidden_new",
+        "candidate_preactivation",
+        "candidate_gate",
+        "hidden_difference",
+        "update_preactivation",
+        "update_gate",
+        "update_delta",
+        "hidden_state",
+    )
+    timesteps: list[dict[str, object]] = []
+    first_recurrent_material: dict[str, object] | None = None
+    first_hidden_material: int | None = None
+    for timestep in range(20):
+        stages: dict[str, object] = {
+            "input": _stage_error_record(
+                dequantized_input[0, timestep],
+                window[timestep],
+                quantized_input[0, timestep],
+                {
+                    "scale_count": 1,
+                    "scale_minimum": float(input_scale),
+                    "scale_maximum": float(input_scale),
+                    "zero_point_minimum": int(input_zero),
+                    "zero_point_maximum": int(input_zero),
+                    "quantized_dimension": 0,
+                },
+            ),
+            "input_projection": _stage_error_record(
+                input_projection[timestep : timestep + 1],
+                float_trace[timestep]["input_projection"],
+                raw_projection[timestep : timestep + 1],
+                projection_quantization,
+            ),
+        }
+        if timestep == 0:
+            base = 62
+            offsets = {
+                "reset_preactivation": 0,
+                "reset_gate": 1,
+                "reset_hidden_new": 2,
+                "candidate_preactivation": 3,
+                "candidate_gate": 4,
+                "hidden_difference": 5,
+                "update_preactivation": 6,
+                "update_gate": 7,
+                "update_delta": 8,
+                "hidden_state": 9,
+            }
+        else:
+            base = 72 + (timestep - 1) * 12
+            offsets = {
+                "hidden_projection": 0,
+                "reset_preactivation": 2,
+                "reset_gate": 3,
+                "reset_hidden_new": 4,
+                "candidate_preactivation": 5,
+                "candidate_gate": 6,
+                "hidden_difference": 7,
+                "update_preactivation": 8,
+                "update_gate": 9,
+                "update_delta": 10,
+                "hidden_state": 11,
+            }
+        for name, offset in offsets.items():
+            operator = operations[base + offset]
+            actual, raw, quantization = _dequantized_tensor(
+                interpreter, int(operator["outputs"][0])
+            )
+            stages[name] = _stage_error_record(
+                actual, float_trace[timestep][name], raw, quantization
+            )
+        if first_recurrent_material is None:
+            for name in stage_order:
+                if (
+                    name in stages
+                    and float(stages[name]["maximum_absolute_error"]) >= material_error
+                ):
+                    first_recurrent_material = {
+                        "timestep": timestep,
+                        "stage": name,
+                        "maximum_absolute_error": stages[name][
+                            "maximum_absolute_error"
+                        ],
+                    }
+                    break
+        if (
+            first_hidden_material is None
+            and float(stages["hidden_state"]["maximum_absolute_error"])
+            >= material_error
+        ):
+            first_hidden_material = timestep
+        timesteps.append({"timestep": timestep, "stages": stages})
+
+    classifier, raw_classifier, classifier_quantization = _dequantized_tensor(
+        interpreter, int(operations[300]["outputs"][0])
+    )
+    probability, raw_probability, probability_quantization = _dequantized_tensor(
+        interpreter, int(operations[301]["outputs"][0])
+    )
+    return {
+        "material_absolute_error": material_error,
+        "first_recurrent_material_error": first_recurrent_material,
+        "first_hidden_state_material_timestep": first_hidden_material,
+        "input_projection_is_material_before_recurrence": any(
+            float(row["stages"]["input_projection"]["maximum_absolute_error"])
+            >= material_error
+            for row in timesteps
+        ),
+        "timesteps": timesteps,
+        "classifier_logits": _stage_error_record(
+            classifier,
+            float_logits,
+            raw_classifier,
+            classifier_quantization,
+        ),
+        "softmax_probabilities": _stage_error_record(
+            probability,
+            float_probabilities,
+            raw_probability,
+            probability_quantization,
+        ),
+    }
+
+
+def _recurrent_sensitivity(
+    state: dict[str, np.ndarray], window: np.ndarray
+) -> dict[str, object]:
+    """Measure local hidden-transition gain along one frozen Float trajectory."""
+    values = torch.from_numpy(window.astype(np.float32, copy=False))
+    weight_ih = torch.from_numpy(state["gru.weight_ih_l0"])
+    weight_hh = torch.from_numpy(state["gru.weight_hh_l0"])
+    bias_ih = torch.from_numpy(state["gru.bias_ih_l0"])
+    bias_hh = torch.from_numpy(state["gru.bias_hh_l0"])
+    input_reset, input_update, input_new = torch.nn.functional.linear(
+        values, weight_ih, bias_ih
+    ).chunk(3, dim=1)
+    hidden = torch.zeros(32, dtype=torch.float32)
+    jacobians = []
+    for timestep in range(20):
+        gate_inputs = (
+            input_reset[timestep],
+            input_update[timestep],
+            input_new[timestep],
+        )
+
+        def transition(previous: torch.Tensor) -> torch.Tensor:
+            hidden_reset, hidden_update, hidden_new = torch.nn.functional.linear(
+                previous, weight_hh, bias_hh
+            ).chunk(3, dim=0)
+            reset = torch.sigmoid(gate_inputs[0] + hidden_reset)
+            update = torch.sigmoid(gate_inputs[1] + hidden_update)
+            new = torch.tanh(gate_inputs[2] + reset * hidden_new)
+            return new + update * (previous - new)
+
+        jacobians.append(torch.autograd.functional.jacobian(transition, hidden))
+        hidden = transition(hidden).detach()
+    local_norms = [
+        float(torch.linalg.matrix_norm(jacobian, ord=2)) for jacobian in jacobians
+    ]
+    product = torch.eye(32, dtype=torch.float32)
+    suffix_norms: list[float] = []
+    for timestep in range(19, -1, -1):
+        product = product @ jacobians[timestep]
+        suffix_norms.append(float(torch.linalg.matrix_norm(product, ord=2)))
+    suffix_norms.reverse()
+    return {
+        "local_hidden_jacobian_spectral_norm_by_timestep": local_norms,
+        "maximum_local_hidden_jacobian_spectral_norm": max(local_norms),
+        "hidden_jacobian_product_norm_from_timestep_by_timestep": suffix_norms,
+        "full_20_step_hidden_jacobian_product_norm": suffix_norms[0],
+        "maximum_suffix_hidden_jacobian_product_norm": max(suffix_norms),
+        "classifier_weight_spectral_norm": float(
+            torch.linalg.matrix_norm(
+                torch.from_numpy(state["classifier.weight"]), ord=2
+            )
+        ),
+    }
 
 
 def _write_artifact(path: Path, payload: bytes) -> dict[str, object]:
@@ -819,13 +1272,17 @@ def _evaluate_int8_ensemble(
     include_softmax: bool,
     expected_operators: dict[str, int],
     repeat_conversion: bool,
+    projection_block_width: int | None = None,
 ) -> dict[str, object]:
     artifacts: list[dict[str, object]] = []
     dequantized_outputs: list[np.ndarray] = []
     suffix = "probability" if include_softmax else "logits"
     for seed, state in zip(seeds, states):
         payload = _int8_tflite(
-            state, calibration, include_softmax=include_softmax
+            state,
+            calibration,
+            include_softmax=include_softmax,
+            projection_block_width=projection_block_width,
         )
         path = output_directory / f"member_seed{seed}_int8_{suffix}.tflite"
         artifact = _write_artifact(path, payload)
@@ -839,7 +1296,10 @@ def _evaluate_int8_ensemble(
         if repeat_conversion:
             deterministic = (
                 _int8_tflite(
-                    state, calibration, include_softmax=include_softmax
+                    state,
+                    calibration,
+                    include_softmax=include_softmax,
+                    projection_block_width=projection_block_width,
                 )
                 == payload
             )
@@ -876,9 +1336,7 @@ def _evaluate_int8_ensemble(
         distribution["float_at_maximum_error"] = float(
             golden["member_hazard_probability"][index, error_index]
         )
-        distribution["int8_at_maximum_error"] = float(
-            probabilities[index, error_index]
-        )
+        distribution["int8_at_maximum_error"] = float(probabilities[index, error_index])
         probability_by_seed[str(seed)] = distribution
     parity: dict[str, object] = {
         "member_hazard_probability": _error_distribution(
@@ -888,9 +1346,7 @@ def _evaluate_int8_ensemble(
         "ensemble_hazard_probability": _error_distribution(
             ensemble, golden["ensemble_hazard_probability"]
         ),
-        "threshold_crossing": _exact_parity(
-            crossing, golden["threshold_crossing"]
-        ),
+        "threshold_crossing": _exact_parity(crossing, golden["threshold_crossing"]),
         "consecutive_threshold_count": _exact_parity(
             counts, golden["consecutive_threshold_count"]
         ),
@@ -898,9 +1354,7 @@ def _evaluate_int8_ensemble(
         "reflex_onset": _exact_parity(onset, golden["reflex_onset"]),
     }
     if logits is not None:
-        parity["member_logits"] = _error_distribution(
-            logits, golden["member_logits"]
-        )
+        parity["member_logits"] = _error_distribution(logits, golden["member_logits"])
     return {
         "representation": output_semantics,
         "members": artifacts,
@@ -955,9 +1409,7 @@ def evaluate_int8_quantization(
 
     if output_root is None:
         selected_directory = _resolve_output(root, settings["selected_directory"])
-        alternative_directory = _resolve_output(
-            root, settings["alternative_directory"]
-        )
+        alternative_directory = _resolve_output(root, settings["alternative_directory"])
         vela_directory = _resolve_output(root, settings["vela_directory"])
         result_path = _resolve_output(root, settings["result_path"])
     else:
@@ -1072,7 +1524,9 @@ def evaluate_int8_quantization(
     expected_ensemble = golden["ensemble_hazard_probability"]
     threshold = float(settings["threshold"])
     above = expected_ensemble >= threshold
-    above_index = int(np.flatnonzero(above)[np.argmin(expected_ensemble[above] - threshold)])
+    above_index = int(
+        np.flatnonzero(above)[np.argmin(expected_ensemble[above] - threshold)]
+    )
     below_index = int(
         np.flatnonzero(~above)[np.argmin(threshold - expected_ensemble[~above])]
     )
@@ -1109,9 +1563,7 @@ def evaluate_int8_quantization(
         "reflex_mismatch_count": selected["parity"]["reflex_required"][
             "mismatch_count"
         ],
-        "onset_mismatch_count": selected["parity"]["reflex_onset"][
-            "mismatch_count"
-        ],
+        "onset_mismatch_count": selected["parity"]["reflex_onset"]["mismatch_count"],
         "float_onset_window_indices": np.flatnonzero(golden["reflex_onset"]).tolist(),
         "int8_onset_window_indices": np.flatnonzero(
             selected_actual["reflex_onset"]
@@ -1165,11 +1617,7 @@ def evaluate_int8_quantization(
         }
 
     numerical_pass = continuous_status == "PASS" and exact_status == "PASS"
-    status = (
-        "INT8_QUANTIZATION_AND_PARITY_PASS"
-        if numerical_pass
-        else M3_VERDICT
-    )
+    status = "INT8_QUANTIZATION_AND_PARITY_PASS" if numerical_pass else M3_VERDICT
 
     def without_arrays(value: dict[str, object]) -> dict[str, object]:
         return {key: item for key, item in value.items() if key != "actual"}
@@ -1269,6 +1717,721 @@ def evaluate_int8_quantization(
             if numerical_pass
             else "INT8_RECURRENT_NUMERICAL_INSTABILITY_RESOLUTION"
         ),
+    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    result["result_path"] = str(result_path)
+    return result
+
+
+def _contract_assessment(
+    evaluation: dict[str, object], contract_settings: dict[str, object]
+) -> dict[str, object]:
+    parity = evaluation["parity"]
+    member_records = parity["member_hazard_probability_by_seed"]
+    ensemble_record = parity["ensemble_hazard_probability"]
+    input_record = evaluation["members"][0]["io"]["input_quantization"]
+    checks: dict[str, dict[str, object]] = {
+        "input_saturation_fraction": {
+            "observed": input_record["saturation_fraction"],
+            "maximum": float(contract_settings["input_saturation_fraction_maximum"]),
+        },
+        "member_probability_median_absolute_error": {
+            "observed_maximum_across_members": max(
+                float(record["p50_absolute_error"])
+                for record in member_records.values()
+            ),
+            "maximum": float(
+                contract_settings["member_probability_median_absolute_error_maximum"]
+            ),
+        },
+        "member_probability_maximum_absolute_error": {
+            "observed_maximum_across_members": max(
+                float(record["maximum_absolute_error"])
+                for record in member_records.values()
+            ),
+            "maximum": float(
+                contract_settings["member_probability_maximum_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_p95_absolute_error": {
+            "observed": ensemble_record["p95_absolute_error"],
+            "maximum": float(
+                contract_settings["ensemble_probability_p95_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_maximum_absolute_error": {
+            "observed": ensemble_record["maximum_absolute_error"],
+            "maximum": float(
+                contract_settings["ensemble_probability_maximum_absolute_error_maximum"]
+            ),
+        },
+        "ensemble_probability_absolute_bias": {
+            "observed": abs(float(ensemble_record["signed_bias"])),
+            "maximum": float(
+                contract_settings["ensemble_probability_absolute_bias_maximum"]
+            ),
+        },
+    }
+    for record in checks.values():
+        observed = float(
+            record.get("observed", record.get("observed_maximum_across_members"))
+        )
+        record["status"] = "PASS" if observed <= float(record["maximum"]) else "FAIL"
+    exact_names = (
+        "threshold_crossing",
+        "consecutive_threshold_count",
+        "reflex_required",
+        "reflex_onset",
+    )
+    continuous_status = (
+        "PASS" if all(row["status"] == "PASS" for row in checks.values()) else "FAIL"
+    )
+    discrete_status = (
+        "PASS"
+        if all(parity[name]["status"] == "PASS" for name in exact_names)
+        else "FAIL"
+    )
+    return {
+        "status": (
+            "PASS"
+            if continuous_status == "PASS" and discrete_status == "PASS"
+            else "FAIL"
+        ),
+        "continuous_status": continuous_status,
+        "discrete_status": discrete_status,
+        "checks": checks,
+        "contract_changed_for_recovery": False,
+    }
+
+
+def _training_diagnostic(
+    evaluation: dict[str, object],
+    representative: np.ndarray,
+    expected_probabilities: np.ndarray,
+) -> dict[str, object]:
+    actual_probabilities = []
+    saturation = []
+    for member in evaluation["members"]:
+        values, io = _run_int8_model(Path(member["path"]), representative)
+        actual_probabilities.append(values[:, 1].astype(np.float64))
+        saturation.append(io["input_quantization"])
+    actual = np.stack(actual_probabilities)
+    expected_ensemble = np.mean(expected_probabilities, axis=0, dtype=np.float64)
+    actual_ensemble = np.mean(actual, axis=0, dtype=np.float64)
+    return {
+        "source": "all_2597_frozen_TRAIN_derived_calibration_windows",
+        "window_count": int(len(representative)),
+        "canonical_golden_used": False,
+        "member_hazard_probability": _error_distribution(
+            actual, expected_probabilities
+        ),
+        "member_hazard_probability_by_seed": {
+            str(seed): _error_distribution(actual[index], expected_probabilities[index])
+            for index, seed in enumerate(MEMBER_SEEDS)
+        },
+        "ensemble_hazard_probability": _error_distribution(
+            actual_ensemble, expected_ensemble
+        ),
+        "input_quantization": saturation[0],
+    }
+
+
+def _masked_error_distribution(
+    actual: np.ndarray, expected: np.ndarray, mask: np.ndarray
+) -> dict[str, object]:
+    count = int(np.count_nonzero(mask))
+    if count == 0:
+        return {"count": 0, "available": False}
+    return {
+        "count": count,
+        "available": True,
+        **_error_distribution(actual[mask], expected[mask]),
+    }
+
+
+def _regime_distributions(
+    actual: np.ndarray, expected: np.ndarray, threshold: float
+) -> dict[str, object]:
+    regimes = {
+        "benign_or_normal_probability_at_most_0_10": expected <= 0.10,
+        "transition_probability_between_0_10_and_threshold": (
+            (expected > 0.10) & (expected < threshold)
+        ),
+        "threshold_vicinity_within_0_02": np.abs(expected - threshold) <= 0.02,
+        "strong_hazard_at_or_above_threshold": expected >= threshold,
+    }
+    return {
+        name: _masked_error_distribution(actual, expected, mask)
+        for name, mask in regimes.items()
+    }
+
+
+def _hybrid_quantization_ablation(
+    model_path: Path,
+    state: dict[str, np.ndarray],
+    windows: np.ndarray,
+    expected: np.ndarray,
+) -> dict[str, object]:
+    """Separate IO/weight error from recurrent activation quantization."""
+    interpreter = _interpreter(model_path)
+    operations = interpreter._get_ops_details()
+    _require(
+        len(operations) == 302
+        and operations[0]["op_name"] == "FULLY_CONNECTED"
+        and operations[72]["op_name"] == "FULLY_CONNECTED"
+        and operations[300]["op_name"] == "FULLY_CONNECTED",
+        "formal baseline graph changed before hybrid ablation",
+    )
+    input_detail = interpreter.get_input_details()[0]
+    input_scale, input_zero = input_detail["quantization"]
+    quantized = np.clip(np.rint(windows / input_scale + input_zero), -128, 127).astype(
+        np.int8
+    )
+    dequantized_input = (quantized.astype(np.float32) - input_zero) * input_scale
+    quantized_state = {name: value.copy() for name, value in state.items()}
+    for name, operation_index in (
+        ("gru.weight_ih_l0", 0),
+        ("gru.weight_hh_l0", 72),
+        ("classifier.weight", 300),
+    ):
+        weight_index = int(operations[operation_index]["inputs"][1])
+        value, _, _ = _dequantized_tensor(interpreter, weight_index)
+        _require(value.shape == state[name].shape, "quantized weight shape changed")
+        quantized_state[name] = value.astype(np.float32, copy=False)
+    scenarios = {
+        "int8_io_only_float_weights_and_intermediates": (
+            dequantized_input,
+            state,
+        ),
+        "int8_per_axis_weights_only_float_io_and_intermediates": (
+            windows,
+            quantized_state,
+        ),
+        "int8_io_and_weights_float_recurrent_intermediates": (
+            dequantized_input,
+            quantized_state,
+        ),
+    }
+    return {
+        name: _error_distribution(
+            _float_member_probabilities(selected_state, selected_windows), expected
+        )
+        for name, (selected_windows, selected_state) in scenarios.items()
+    }
+
+
+def _partitioned_hidden_trace(
+    model_path: Path,
+    state: dict[str, np.ndarray],
+    window: np.ndarray,
+    block_width: int,
+    material_error: float,
+) -> dict[str, object]:
+    interpreter = _preserved_interpreter(model_path)
+    input_detail = interpreter.get_input_details()[0]
+    scale, zero = input_detail["quantization"]
+    quantized = np.clip(np.rint(window / scale + zero), -128, 127).astype(np.int8)
+    interpreter.set_tensor(int(input_detail["index"]), quantized[None, ...])
+    interpreter.invoke()
+    operations = interpreter._get_ops_details()
+    details = {
+        int(detail["index"]): detail for detail in interpreter.get_tensor_details()
+    }
+    blocks_per_gate = 32 // block_width
+    block_count = 3 * blocks_per_gate
+    input_projection_ops = [
+        operation
+        for operation in operations
+        if operation["op_name"] == "FULLY_CONNECTED"
+        and list(details[int(operation["outputs"][0])]["shape"]) == [20, block_width]
+    ]
+    hidden_concat_ops = [
+        operation
+        for operation in operations
+        if operation["op_name"] == "CONCATENATION"
+        and list(details[int(operation["outputs"][0])]["shape"]) == [1, 32]
+    ]
+    _require(
+        len(input_projection_ops) == block_count and len(hidden_concat_ops) == 20,
+        "partitioned recovery graph trace changed",
+    )
+    float_trace, float_logits, float_probability = _float_recurrent_trace(state, window)
+    float_projection = np.concatenate(
+        [row["input_projection"] for row in float_trace], axis=0
+    )
+    projection_blocks = np.split(float_projection, block_count, axis=1)
+    projection_error = []
+    for block, (operation, expected) in enumerate(
+        zip(input_projection_ops, projection_blocks)
+    ):
+        actual, raw, quantization = _dequantized_tensor(
+            interpreter, int(operation["outputs"][0])
+        )
+        projection_error.append(
+            {
+                "block": block,
+                **_stage_error_record(actual, expected, raw, quantization),
+            }
+        )
+    hidden_error = []
+    for timestep, operation in enumerate(hidden_concat_ops):
+        actual, raw, quantization = _dequantized_tensor(
+            interpreter, int(operation["outputs"][0])
+        )
+        hidden_error.append(
+            {
+                "timestep": timestep,
+                **_stage_error_record(
+                    actual,
+                    float_trace[timestep]["hidden_state"],
+                    raw,
+                    quantization,
+                ),
+            }
+        )
+    classifier_ops = [
+        operation
+        for operation in operations
+        if operation["op_name"] == "FULLY_CONNECTED"
+        and list(details[int(operation["outputs"][0])]["shape"]) == [1, 2]
+    ]
+    softmax_ops = [
+        operation for operation in operations if operation["op_name"] == "SOFTMAX"
+    ]
+    _require(
+        len(classifier_ops) == len(softmax_ops) == 1,
+        "partitioned recovery output graph changed",
+    )
+    classifier, raw_classifier, classifier_q = _dequantized_tensor(
+        interpreter, int(classifier_ops[0]["outputs"][0])
+    )
+    probability, raw_probability, probability_q = _dequantized_tensor(
+        interpreter, int(softmax_ops[0]["outputs"][0])
+    )
+    return {
+        "projection_block_width": block_width,
+        "input_projection_blocks": projection_error,
+        "hidden_state_by_timestep": hidden_error,
+        "first_hidden_state_material_timestep": next(
+            (
+                int(row["timestep"])
+                for row in hidden_error
+                if float(row["maximum_absolute_error"]) >= material_error
+            ),
+            None,
+        ),
+        "classifier_logits": _stage_error_record(
+            classifier, float_logits, raw_classifier, classifier_q
+        ),
+        "softmax_probabilities": _stage_error_record(
+            probability, float_probability, raw_probability, probability_q
+        ),
+    }
+
+
+def evaluate_int8_recovery(
+    repository_root: Path,
+    config_path: Path = DEFAULT_CONFIG,
+    output_root: Path | None = None,
+) -> dict[str, object]:
+    """Localize formal INT8 recurrent error and assess focused PTQ recovery."""
+    root = repository_root.resolve()
+    bundle, config, model_manifest, _ = validate_reference_bundle(root, config_path)
+    formal_settings = config.get("formal_int8")
+    settings = config.get("int8_recovery")
+    _require(
+        isinstance(formal_settings, dict) and isinstance(settings, dict),
+        "M3.1 recovery config is missing",
+    )
+    seeds = [int(value) for value in formal_settings["member_seeds"]]
+    _require(seeds == list(MEMBER_SEEDS), "M3.1 member order changed")
+    with np.load(
+        bundle / "calibration_inputs/int8_representative.npz", allow_pickle=False
+    ) as payload:
+        representative = payload["model_windows"].copy()
+    percentile = float(
+        formal_settings["calibration_policy"]["symmetric_absolute_percentile"]
+    )
+    _require(percentile == 99.0, "formal calibration policy changed before M3.1")
+    clipping_bound = float(np.percentile(np.abs(representative), percentile))
+    calibration = np.clip(representative, -clipping_bound, clipping_bound).astype(
+        np.float32, copy=False
+    )
+    with np.load(
+        bundle / "golden_outputs/deployment_runtime_chain.npz", allow_pickle=False
+    ) as payload:
+        golden = {name: payload[name].copy() for name in payload.files}
+    windows = golden["model_windows"]
+    models = load_ensemble(bundle, model_manifest)
+    states = [_state_arrays(model) for model in models]
+    training_float = np.stack(
+        [_float_member_probabilities(state, representative) for state in states]
+    )
+
+    if output_root is None:
+        model_directory = _resolve_output(root, settings["model_directory"])
+        vela_directory = _resolve_output(root, settings["vela_directory"])
+        result_path = _resolve_output(root, settings["result_path"])
+    else:
+        selected_root = output_root.resolve()
+        model_directory = selected_root / "quantized/recovery"
+        vela_directory = selected_root / "vela/recovery"
+        result_path = selected_root / "int8_recurrent_error_localization.json"
+
+    baseline = _evaluate_int8_ensemble(
+        states=states,
+        seeds=seeds,
+        calibration=calibration,
+        windows=windows,
+        golden=golden,
+        output_directory=model_directory / "formal_baseline_reproduction",
+        include_softmax=True,
+        expected_operators=formal_settings["expected_probability_operators"],
+        repeat_conversion=True,
+    )
+    expected_hashes = settings["baseline_artifact_sha256"]
+    for member in baseline["members"]:
+        seed = str(member["seed"])
+        _require(
+            member["sha256"] == expected_hashes[seed],
+            f"M3 baseline artifact was not reproduced for seed {seed}",
+        )
+    baseline_contract = _contract_assessment(
+        baseline, formal_settings["numerical_contract"]
+    )
+    _require(
+        baseline_contract["status"] == "FAIL"
+        and baseline_contract["discrete_status"] == "PASS",
+        "M3 failure was not reproduced",
+    )
+
+    candidate_runtime: dict[str, dict[str, object]] = {}
+    candidate_evidence: dict[str, dict[str, object]] = {}
+    for candidate in settings["projection_partition_candidates"]:
+        name = str(candidate["name"])
+        width = int(candidate["block_width"])
+        evaluation = _evaluate_int8_ensemble(
+            states=states,
+            seeds=seeds,
+            calibration=calibration,
+            windows=windows,
+            golden=golden,
+            output_directory=model_directory / name,
+            include_softmax=True,
+            expected_operators=candidate["expected_operators"],
+            repeat_conversion=False,
+            projection_block_width=width,
+        )
+        training = _training_diagnostic(evaluation, representative, training_float)
+        candidate_runtime[name] = {
+            "evaluation": evaluation,
+            "block_width": width,
+        }
+        candidate_evidence[name] = {
+            "projection_block_width": width,
+            "mathematical_change": "none_projection_rows_only_partitioned",
+            "weights_changed": False,
+            "calibration_changed": False,
+            "training_diagnostic": training,
+            "golden_evaluation": {
+                key: value for key, value in evaluation.items() if key != "actual"
+            },
+            "contract": _contract_assessment(
+                evaluation, formal_settings["numerical_contract"]
+            ),
+        }
+
+    selected_name = min(
+        candidate_evidence,
+        key=lambda name: (
+            float(
+                candidate_evidence[name]["training_diagnostic"][
+                    "ensemble_hazard_probability"
+                ]["p95_absolute_error"]
+            ),
+            int(candidate_evidence[name]["projection_block_width"]),
+        ),
+    )
+    selected_runtime = candidate_runtime[selected_name]
+    selected_evaluation = selected_runtime["evaluation"]
+    selected_contract = candidate_evidence[selected_name]["contract"]
+    for state, member in zip(states, selected_evaluation["members"]):
+        repeated = _int8_tflite(
+            state,
+            calibration,
+            include_softmax=True,
+            projection_block_width=int(selected_runtime["block_width"]),
+        )
+        member["repeated_conversion_byte_identical"] = (
+            repeated == Path(member["path"]).read_bytes()
+        )
+        _require(
+            member["repeated_conversion_byte_identical"],
+            f"M3.1 selected conversion is not deterministic: {member['seed']}",
+        )
+
+    expected_ensemble = golden["ensemble_hazard_probability"]
+    baseline_actual = baseline["actual"]
+    selected_actual = selected_evaluation["actual"]
+    threshold = float(formal_settings["threshold"])
+    regime_comparison = {
+        "baseline": _regime_distributions(
+            baseline_actual["ensemble"], expected_ensemble, threshold
+        ),
+        "selected_partial_recovery": _regime_distributions(
+            selected_actual["ensemble"], expected_ensemble, threshold
+        ),
+    }
+
+    material_error = float(settings["material_absolute_error"])
+    baseline_trace = []
+    worst_indices = []
+    for index, seed in enumerate(seeds):
+        member_record = baseline["parity"]["member_hazard_probability_by_seed"][
+            str(seed)
+        ]
+        window_index = int(member_record["maximum_error_index"])
+        worst_indices.append(window_index)
+        interpreter = _preserved_interpreter(Path(baseline["members"][index]["path"]))
+        baseline_trace.append(
+            {
+                "seed": seed,
+                "window_index": window_index,
+                "selection": "formal_baseline_member_maximum_probability_error",
+                "float_hazard_probability": float(
+                    golden["member_hazard_probability"][index, window_index]
+                ),
+                "int8_hazard_probability": float(
+                    baseline_actual["probabilities"][index, window_index]
+                ),
+                "trace": _trace_baseline_window(
+                    interpreter,
+                    states[index],
+                    windows[window_index],
+                    material_error,
+                ),
+                "sensitivity": _recurrent_sensitivity(
+                    states[index], windows[window_index]
+                ),
+            }
+        )
+    above = expected_ensemble >= threshold
+    representative_indices = {
+        "minimum_ensemble_probability": int(np.argmin(expected_ensemble)),
+        "closest_below_threshold": int(
+            np.flatnonzero(~above)[np.argmin(threshold - expected_ensemble[~above])]
+        ),
+        "maximum_ensemble_probability": int(np.argmax(expected_ensemble)),
+    }
+    diagnostic_member = 1
+    diagnostic_interpreter = _preserved_interpreter(
+        Path(baseline["members"][diagnostic_member]["path"])
+    )
+    for label, window_index in representative_indices.items():
+        baseline_trace.append(
+            {
+                "seed": seeds[diagnostic_member],
+                "window_index": window_index,
+                "selection": label,
+                "float_hazard_probability": float(
+                    golden["member_hazard_probability"][diagnostic_member, window_index]
+                ),
+                "int8_hazard_probability": float(
+                    baseline_actual["probabilities"][diagnostic_member, window_index]
+                ),
+                "trace": _trace_baseline_window(
+                    diagnostic_interpreter,
+                    states[diagnostic_member],
+                    windows[window_index],
+                    material_error,
+                ),
+            }
+        )
+
+    hybrid_ablation = {
+        str(seed): _hybrid_quantization_ablation(
+            Path(baseline["members"][index]["path"]),
+            states[index],
+            windows,
+            golden["member_hazard_probability"][index],
+        )
+        for index, seed in enumerate(seeds)
+    }
+    selected_residual_trace = []
+    for index, seed in enumerate(seeds):
+        member_record = selected_evaluation["parity"][
+            "member_hazard_probability_by_seed"
+        ][str(seed)]
+        window_index = int(member_record["maximum_error_index"])
+        selected_residual_trace.append(
+            {
+                "seed": seed,
+                "window_index": window_index,
+                "float_hazard_probability": float(
+                    golden["member_hazard_probability"][index, window_index]
+                ),
+                "int8_hazard_probability": float(
+                    selected_actual["probabilities"][index, window_index]
+                ),
+                "trace": _partitioned_hidden_trace(
+                    Path(selected_evaluation["members"][index]["path"]),
+                    states[index],
+                    windows[window_index],
+                    int(selected_runtime["block_width"]),
+                    material_error,
+                ),
+            }
+        )
+
+    vela = shutil.which("vela")
+    if vela is None:
+        raise RuntimeError("Vela executable is not installed or not on PATH")
+    target = formal_settings["target"]
+    mappings: dict[str, dict[str, object]] = {}
+    for memory_mode in ("Shared_Sram", "Sram_Only"):
+        rows: dict[str, object] = {}
+        for member in selected_evaluation["members"]:
+            seed = str(member["seed"])
+            mapping = _run_vela(
+                vela,
+                Path(member["path"]),
+                vela_directory / memory_mode.lower() / f"member_seed{seed}",
+                str(target["accelerator_config"]),
+                str(target["generic_system_config"]),
+                memory_mode,
+            )
+            _require(
+                mapping["cpu_operators"] == 0
+                and mapping["npu_operators"]
+                == int(settings["selected_expected_npu_operators"]),
+                f"M3.1 selected candidate has U55 fallback: {seed}/{memory_mode}",
+            )
+            rows[seed] = mapping
+        mappings[memory_mode] = rows
+    vela_summary = {
+        memory_mode: {
+            "three_member_macs": sum(
+                int(row["macs_per_inference"]) for row in rows.values()
+            ),
+            "three_member_npu_cycles": sum(
+                int(row["npu_cycles"]) for row in rows.values()
+            ),
+            "three_member_total_cycles": sum(
+                int(row["total_cycles"]) for row in rows.values()
+            ),
+            "maximum_member_sram_kib": max(
+                float(row["sram_kib"]) for row in rows.values()
+            ),
+            "sum_compiled_model_bytes": sum(
+                int(row["compiled_model"]["bytes"]) for row in rows.values()
+            ),
+        }
+        for memory_mode, rows in mappings.items()
+    }
+
+    formal_rerun = selected_contract["status"] == "PASS"
+    _require(not formal_rerun, "credible M3.1 recovery requires a formal M3 rerun")
+
+    def without_actual(value: dict[str, object]) -> dict[str, object]:
+        return {key: item for key, item in value.items() if key != "actual"}
+
+    result: dict[str, object] = {
+        "status": M31_VERDICT,
+        "reference": {
+            "candidate_id": model_manifest["candidate_id"],
+            "engineering_role": model_manifest["engineering_role"],
+            "scientific_verdict": model_manifest["scientific_status"]["verdict"],
+            "research_release_commit": config["accepted_identity"][
+                "research_release_commit"
+            ],
+            "calibration_sha256": config["accepted_identity"][
+                "int8_calibration_sha256"
+            ],
+        },
+        "calibration": {
+            "source": "frozen exact effective TRAIN handoff",
+            "window_count": int(len(representative)),
+            "symmetric_absolute_percentile": percentile,
+            "clipping_bound": clipping_bound,
+            "policy_changed_from_formal_m3": False,
+            "protected_holdout_access": False,
+            "golden_used_for_candidate_selection": False,
+        },
+        "m3_baseline_reproduction": {
+            "artifact_hashes_match": True,
+            "contract": baseline_contract,
+            "evaluation": without_actual(baseline),
+        },
+        "localization": {
+            "actual_graph": (
+                "302 static TFLite built-in operations; no high-level GRU operator"
+            ),
+            "material_absolute_error": material_error,
+            "worst_window_indices_by_seed": dict(zip(map(str, seeds), worst_indices)),
+            "representative_window_indices": representative_indices,
+            "baseline_traces": baseline_trace,
+            "hybrid_io_weight_ablation": hybrid_ablation,
+        },
+        "ptq_candidates": candidate_evidence,
+        "selection": {
+            "name": selected_name,
+            "projection_block_width": selected_runtime["block_width"],
+            "criterion": (
+                "minimum ensemble p95 absolute error on all 2597 TRAIN-derived "
+                "diagnostic windows; golden excluded"
+            ),
+            "golden_used": False,
+            "calibration_policy_changed": False,
+            "weights_or_semantics_changed": False,
+            "byte_deterministic_all_members": all(
+                bool(member["repeated_conversion_byte_identical"])
+                for member in selected_evaluation["members"]
+            ),
+            "contract": selected_contract,
+            "residual_traces": selected_residual_trace,
+        },
+        "golden_regime_comparison": regime_comparison,
+        "vela": {
+            "tool_version": _package_version("ethos-u-vela"),
+            "accelerator_config": target["accelerator_config"],
+            "system_config": target["generic_system_config"],
+            "members": mappings,
+            "three_member_summary": vela_summary,
+            "timing_is_board_measured": False,
+        },
+        "formal_m3_rerun": {
+            "performed": formal_rerun,
+            "reason": (
+                "not performed because the independently selected best PTQ "
+                "candidate still fails the unchanged M3 numerical contract"
+            ),
+        },
+        "root_cause_assessment": {
+            "classification": (
+                "per_tensor_projection_and_recurrent_activation_quantization_"
+                "amplified_by_high_gain_hidden_dynamics"
+            ),
+            "input_saturation_primary_cause": False,
+            "classifier_or_softmax_primary_cause": False,
+            "ptq_only_full_int8_recovery_demonstrated": False,
+            "research_intervention_required": True,
+            "recommended_research_scope": (
+                "reviewed QAT or a deployment-aware recurrent model change"
+            ),
+        },
+        "boundary": {
+            "m31_completed": True,
+            "existing_m3_numerical_contract_passed": False,
+            "m4_authorized": False,
+            "firmware_started": False,
+            "board_state_modified": False,
+            "research_repository_modified": False,
+            "protected_holdout_access": False,
+        },
+        "next_milestone": "RESEARCH_QUANTIZATION_AWARE_INTERVENTION_REVIEW",
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(

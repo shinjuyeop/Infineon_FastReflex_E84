@@ -44,7 +44,7 @@ def main() -> int:
     current = sys.version_info[:2]
     print(f"Python: {platform.python_version()}")
     print(f"Platform: {platform.platform()}")
-    print("Project status: INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL")
+    print("Project status: INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL")
 
     if current < MINIMUM_PYTHON:
         print("Result: Python 3.10 or newer is required.")
@@ -72,7 +72,7 @@ def main() -> int:
     if missing:
         print(f"Result: conversion environment incomplete: {', '.join(missing)}")
         return 1
-    print("Result: M2/M3 conversion and Vela environment available.")
+    print("Result: M2/M3/M3.1 conversion and Vela environment available.")
     print("Infineon ML Pack and board execution are not validated by this check.")
     return 0
 

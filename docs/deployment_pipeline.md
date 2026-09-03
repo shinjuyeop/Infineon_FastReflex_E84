@@ -10,6 +10,7 @@ Reviewed Frozen Float Model + Contract
   -> M2.1 Research-owned batch-1 Float contract + revalidation         [PASS]
   -> M3 INT8 quantization and parity                                   [FAIL]
   -> M3 formal-model Vela / Ethos-U55 mapping                         [PASS, GENERIC]
+  -> M3.1 recurrent localization / PTQ recovery                        [FAIL]
   -> Target-specific Vela / Ethos-U55 compilation                     [NOT STARTED]
   -> Firmware integration                                             [NOT STARTED]
   -> KIT_PSE84_AI execution                                           [NOT STARTED]
@@ -50,6 +51,14 @@ Research froze 2,597 representative windows from all 442 exact effective-TRAIN r
 
 All three selected models are byte-deterministic and retain complete formal U55 mapping (`0 CPU / 192 NPU` each). On the frozen golden, all 22 threshold crossings, counters, three onset endpoints and final decisions are exact. Nevertheless, two members have maximum probability errors near `0.9`; ensemble maximum/p95 errors are `0.3334/0.1884` with `-0.02093` bias. These exceed the separately defined INT8 contract, so exact discrete parity on one trace is insufficient for acceptance.
 
+## M3.1 result
+
+`INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL`
+
+Actual intermediate tracing localizes the first material error to the shared per-tensor input projection before recurrent timestep 0. Sigmoid/tanh initially attenuate it, but high-gain hidden dynamics accumulate the perturbation. Worst-window hidden error first exceeds `0.10` at t=2/3/1 for seeds `20260828/20260829/20260830`; 20-step hidden Jacobian-product norms are `5.12/26.66/19.79`. Input saturation, classifier, and softmax are not the primary cause.
+
+With the formal TRAIN p99 calibration fixed, M3.1 tested mathematically equivalent gate and channel partitions. A 16-channel block representation was selected solely by p95 error on all 2,597 TRAIN-derived windows. On canonical golden it improves ensemble max/p95/bias to `0.0833/0.0407/-0.00205` and retains exact decisions and `0 CPU / 472 NPU` mapping, but member maximum error remains `0.2614` against the unchanged `0.10` gate. It was not frozen and formal M3 was not rerun.
+
 ## Next gate
 
-M4 is not authorized. Resolve the frozen GRU's post-training INT8 recurrent numerical instability without changing threshold, persistence, member count, causal preprocessing, or state semantics. Any Research-side retraining/QAT or new artifact requires a separate reviewed scope. Firmware, board execution, and HIL remain not started.
+M4 is not authorized. The deployment-side PTQ investigation is exhausted for the practical full-INT8 representations evaluated here. Return to Research for reviewed QAT or a deployment-aware recurrent model change without altering this repository's frozen scientific evidence. Firmware, board execution, and HIL remain not started.

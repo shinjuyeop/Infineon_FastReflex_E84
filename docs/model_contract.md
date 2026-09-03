@@ -2,7 +2,7 @@
 
 ## Accepted reference identity
 
-This is the reviewed handoff plus the completed M3 characterization.
+This is the reviewed handoff plus the completed M3/M3.1 characterization.
 
 | Field | Frozen value |
 |---|---|
@@ -171,3 +171,5 @@ The immutable scientific verdict is `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORT
 | Generalization HOLDOUT | 25/28 | 11/14 | 14/14 | 5/8 | 2/28 |
 
 M3 proves deterministic conversion, exact decision parity on the canonical golden, and formal-model generic Vela mapping. It does not accept continuous INT8 probability parity: observed recurrent excursions violate the Deployment-owned contract, so M4 is not authorized. The handoff still does not establish scientific support, real-robot support, production readiness, safety certification, final sensor architecture, firmware execution, board timing/RAM/Flash, or HIL behavior.
+
+M3.1 localizes the dominant failure to per-tensor projection/recurrent activation error amplified by high-gain hidden dynamics. A TRAIN-selected, mathematically equivalent 16-channel projection partition reduces ensemble max/p95 error to `0.0833/0.0407` and retains exact decisions plus complete generic U55 placement, but member maximum error remains `0.2614` against the unchanged `0.10` gate. The representation is not frozen, formal M3 is not rerun, Research intervention is required, and M4 remains unauthorized.

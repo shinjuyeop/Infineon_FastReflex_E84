@@ -109,3 +109,50 @@ formal_int8:
     STRIDED_SLICE: 60
     SUB: 20
     TANH: 20
+
+int8_recovery:
+  model_directory: model/quantized/recovery
+  vela_directory: model/vela/int8_recovery
+  result_path: reports/generated/int8_recurrent_error_localization.json
+  material_absolute_error: 0.10
+  baseline_artifact_sha256:
+    "20260828": d6726d65a6bb63ca564b57b528112ab6e6db5a0e1b77b87cdae08c4ef363aec1
+    "20260829": c793df173ecf73c80f05bae6dbb2061a552f2e4448fff02025892c547a19d3c3
+    "20260830": f4538854a092d4d12a8909f06d2a01156c8097f54c4518b31d9df8a82ad1a854
+  projection_partition_candidates:
+    - name: gate_split_32
+      block_width: 32
+      expected_operators:
+        ADD: 80
+        FULLY_CONNECTED: 61
+        LOGISTIC: 40
+        MUL: 40
+        SOFTMAX: 1
+        STRIDED_SLICE: 60
+        SUB: 20
+        TANH: 20
+    - name: two_blocks_per_gate_16
+      block_width: 16
+      expected_operators:
+        ADD: 160
+        CONCATENATION: 20
+        FULLY_CONNECTED: 121
+        LOGISTIC: 80
+        MUL: 80
+        SOFTMAX: 1
+        STRIDED_SLICE: 158
+        SUB: 40
+        TANH: 40
+    - name: four_blocks_per_gate_8
+      block_width: 8
+      expected_operators:
+        ADD: 320
+        CONCATENATION: 20
+        FULLY_CONNECTED: 241
+        LOGISTIC: 160
+        MUL: 160
+        SOFTMAX: 1
+        STRIDED_SLICE: 316
+        SUB: 80
+        TANH: 80
+  selected_expected_npu_operators: 472

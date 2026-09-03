@@ -14,6 +14,7 @@ Frozen Float Model
   -> Minimum INT8 Operator Probe
   -> Vela / U55 Mapping
   -> Formal INT8 Parity
+  -> INT8 Recurrent Error Localization / PTQ Recovery
   -> Firmware Integration
   -> E84
   -> HIL
@@ -57,13 +58,15 @@ Frozen Float Model
 
 ## Current Status
 
-`INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL`
+`INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL`
 
 Research가 exact effective TRAIN 442개 run에서 model/quantization 결과를 보지 않고 고른 2,597개 causal window를 18-file handoff에 추가했다. Deployment는 per-tensor 입력의 극단 tail 문제를 완화하기 위해 TRAIN 절대값 99 percentile인 `±4.1328436`을 calibration 범위로 사용했다. 입력은 INT8 scale `0.03241446`, zero point `0`, NPU softmax 출력은 scale `1/256`, zero point `-128`이다.
 
-세 formal member는 모두 byte-deterministic하고 Vela 4.2.0에서 각각 `0 CPU / 192 NPU`로 전부 배치된다. Frozen golden의 threshold crossing, consecutive count, 5 ms persistence, onset `[65,90,107]`, 최종 decision도 exact다. 그러나 member 최대 확률 오차가 `0.1065 / 0.8876 / 0.8983`, ensemble 최대/p95 오차가 `0.3334 / 0.1884`, bias가 `-0.02093`으로 INT8-specific numerical contract를 크게 위반한다. 정확한 discrete 결과만으로 이 recurrent probability instability를 승인하지 않았다.
+M3.1의 actual 302-op graph trace에서 오차는 recurrent step 이전의 shared input projection에서 이미 material해지고, hidden-state error가 seed별 t=`2 / 3 / 1`부터 `0.10`을 넘은 뒤 feedback으로 누적됨을 확인했다. Worst window에는 input saturation이 없고 sigmoid/tanh, classifier, softmax에서 단번에 생기는 collapse도 아니다. Seed `20260829/20260830`의 20-step hidden Jacobian gain은 `26.66/19.79`로 seed `20260828`의 `5.12`보다 훨씬 커서 비슷한 초기 양자화 오차를 크게 증폭한다.
 
-따라서 M3는 완료됐지만 FAIL이며 M4는 승인되지 않는다. 선택안은 NPU-side softmax 뒤 probability dequantization과 CPU Float64 ensemble/decision 경계이나, instability가 해소되기 전에는 M4 canonical input이 아니다. Candidate role은 계속 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`, scientific verdict는 계속 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Firmware, flash, board execution과 HIL은 시작하지 않았다.
+Golden을 사용하지 않고 TRAIN 2,597개 전체의 ensemble p95로 선택한 best PTQ 표현은 gate마다 두 개의 고정 16-channel projection block을 둔다. Baseline member max `0.1065 / 0.8876 / 0.8983`은 `0.2190 / 0.2614 / 0.1286`으로, ensemble max/p95/bias는 `0.0833 / 0.0407 / -0.00205`로 개선됐다. 모든 discrete 결과와 onset `[65,90,107]`은 exact이고 Vela에서 각 member가 `0 CPU / 472 NPU`이지만, member max `0.2614`가 기존 `<=0.10` 계약을 여전히 위반한다.
+
+따라서 M3.1은 partial recovery이지만 FAIL이다. Best 후보를 freeze하지 않았고 formal M3를 재실행하지 않았으며 M4도 승인되지 않는다. 다음 단계는 Research의 reviewed QAT 또는 deployment-aware recurrent model 변경 검토다. Candidate role은 계속 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`, scientific verdict는 계속 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Research, firmware, flash, board execution과 HIL은 수정하거나 시작하지 않았다.
 
 ## 구조
 
@@ -92,10 +95,11 @@ Python 3.10 이상에서 다음 명령으로 handoff와 layered parity를 검증
 python tools/deployment.py verify-reference
 python tools/deployment.py evaluate-export
 python tools/deployment.py evaluate-int8  # expected exit 2: numerical gate fails
+python tools/deployment.py evaluate-int8-recovery  # expected exit 2
 PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 ```
 
-현재 `verify-reference`와 `evaluate-export`는 exit code 0으로 통과한다. `evaluate-int8`은 전체 evidence를 생성한 뒤 현재의 의도된 numerical-contract 실패를 exit code 2로 반환한다. Contract 또는 discrete decision이 어긋나도 fail-closed한다.
+현재 `verify-reference`와 `evaluate-export`는 exit code 0으로 통과한다. `evaluate-int8`과 `evaluate-int8-recovery`는 전체 evidence를 생성한 뒤 현재의 의도된 numerical-contract 실패를 exit code 2로 반환한다. Contract 또는 discrete decision이 어긋나도 fail-closed한다.
 
 현재 Python, M2 conversion/Vela 도구와 KitProg USB 열거 상태를 확인하려면:
 
@@ -103,4 +107,4 @@ PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python tools/verify_environment.py
 ```
 
-생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. Historical M2 evidence는 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md), M2.1 resolution은 [`reports/float_numerical_contract_resolution.md`](reports/float_numerical_contract_resolution.md), M3 결과는 [`reports/int8_quantization_and_parity.md`](reports/int8_quantization_and_parity.md)에 있다.
+생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. Historical M2 evidence는 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md), M2.1 resolution은 [`reports/float_numerical_contract_resolution.md`](reports/float_numerical_contract_resolution.md), M3 결과는 [`reports/int8_quantization_and_parity.md`](reports/int8_quantization_and_parity.md), M3.1 결과는 [`reports/int8_recurrent_error_localization_and_ptq_recovery.md`](reports/int8_recurrent_error_localization_and_ptq_recovery.md)에 있다.
