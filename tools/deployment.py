@@ -76,6 +76,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
     )
+    target_vela = subparsers.add_parser(
+        "compile-target-vela",
+        help="compile the frozen prototype with official PSE84 ML CoreTools",
+    )
+    target_vela.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
+    target_vela.add_argument(
+        "--ml-coretools",
+        type=Path,
+        required=True,
+        help="path to ML CoreTools from the pinned Machine Learning Pack",
+    )
+    target_vela.add_argument(
+        "--output-root",
+        type=Path,
+        help="override generated output root (primarily for isolated verification)",
+    )
     return parser
 
 
@@ -125,6 +145,19 @@ def main() -> int:
 
             result = freeze_non_release_hil_prototype(
                 REPOSITORY_ROOT, args.config
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.command == "compile-target-vela":
+            from fastreflex_e84.conversion import (
+                compile_non_release_hil_prototype_for_e84,
+            )
+
+            result = compile_non_release_hil_prototype_for_e84(
+                REPOSITORY_ROOT,
+                args.ml_coretools,
+                args.config,
+                args.output_root,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0

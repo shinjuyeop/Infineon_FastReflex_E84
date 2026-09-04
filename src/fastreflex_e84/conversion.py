@@ -932,6 +932,12 @@ def _vela_summary(text: str) -> dict[str, object]:
         "maximum_subgraph_kib": _match_float(
             r"Maximum NNG Subgraph Size = ([0-9.]+) KiB", text
         ),
+        "original_weights_kib": _match_float(
+            r"Original Weights Size\s+([0-9.]+) KiB", text
+        ),
+        "npu_encoded_weights_kib": _match_float(
+            r"NPU Encoded Weights Size\s+([0-9.]+) KiB", text
+        ),
         "unsupported_semantics_warnings": len(
             re.findall(
                 r"^Warning: Unsupported TensorFlow Lite semantics", text, re.MULTILINE
@@ -2672,3 +2678,322 @@ def freeze_non_release_hil_prototype(
         "formal_m3_pass": False,
         "m4_authorized": False,
     }
+
+
+def _ml_coretools_config(
+    source: Path, key: str, target: dict[str, object]
+) -> dict[str, object]:
+    requirements = {
+        "accuracy": {
+            "float": 100.0,
+            "int16x16": 100.0,
+            "int16x8": 100.0,
+            "int8x8": 100.0,
+        },
+        "cpu_cycles": {name: 0 for name in ("float", "int16x16", "int16x8", "int8x8")},
+        "mae": {name: 1.0 for name in ("float", "int16x16", "int16x8", "int8x8")},
+        "scratch_mem_kb": {
+            name: 10.0 for name in ("float", "int16x16", "int16x8", "int8x8")
+        },
+        "scratch_mem_opt_kb": {
+            name: 10.0 for name in ("float", "int16x16", "int16x8", "int8x8")
+        },
+    }
+    random_data = {
+        "data_mode": "random",
+        "max_samples": 1,
+        # CoreTools 3.0 reads the outer fields while its schema also describes
+        # a nested data_config.  Keep both for an exact, schema-valid invocation.
+        "data_config": {"data_mode": "random", "max_samples": 1},
+    }
+    return {
+        "version": "2.0.0",
+        "model": {
+            "load_model": str(source),
+            "key_model": key,
+            "model_task": "classification",
+            "is_model_rnn": False,
+            "optimization_settings": {
+                "target": "PSE84_M55_U55",
+                "interpreter": "tflm",
+                "quantization": ["int8x8"],
+                "sparsity": False,
+                "ethos_u_npu_vela_options": {
+                    "system_config": target["system_config"],
+                    "memory_mode": target["memory_mode"],
+                    "arena_cache_size": target["arena_cache_size"],
+                    "max_block_dependency": target["max_block_dependency"],
+                    "optimization_strategy": target["optimization_strategy"],
+                    "recursion_limit": target["recursion_limit"],
+                    "tensor_allocator": target["tensor_allocator"],
+                },
+            },
+        },
+        "data": {
+            "calibration_data": random_data,
+            "validation_data": random_data,
+        },
+        "cdv_requirements": {
+            "tflm": requirements,
+            "ifx": requirements,
+        },
+    }
+
+
+def _compiled_ethosu_buffers(model_path: Path) -> dict[str, int]:
+    """Read exact command/constant buffer sizes from a Vela TFLite flatbuffer."""
+    _tensorflow()
+    from tensorflow.lite.python import schema_py_generated as schema
+
+    payload = model_path.read_bytes()
+    model = schema.Model.GetRootAsModel(payload, 0)
+    _require(model.SubgraphsLength() == 1, "compiled model subgraph count changed")
+    subgraph = model.Subgraphs(0)
+    _require(subgraph.OperatorsLength() == 1, "compiled model is not one Ethos-U op")
+    opcode = model.OperatorCodes(subgraph.Operators(0).OpcodeIndex())
+    custom_code = opcode.CustomCode()
+    _require(custom_code == b"ethos-u", "compiled model does not contain Ethos-U")
+    sizes: dict[str, int] = {}
+    for index in range(subgraph.TensorsLength()):
+        tensor = subgraph.Tensors(index)
+        name_value = tensor.Name()
+        name = "" if name_value is None else name_value.decode("utf-8")
+        length = int(model.Buffers(tensor.Buffer()).DataLength())
+        if name.endswith("_command_stream"):
+            sizes["command_stream_bytes"] = length
+        elif name.endswith("_flash"):
+            sizes["constant_flash_tensor_bytes"] = length
+    _require(
+        sizes.get("command_stream_bytes", 0) > 0
+        and sizes.get("constant_flash_tensor_bytes", 0) > 0,
+        "compiled Ethos-U buffers are missing",
+    )
+    return sizes
+
+
+def compile_non_release_hil_prototype_for_e84(
+    repository_root: Path,
+    ml_coretools: Path,
+    config_path: Path = DEFAULT_CONFIG,
+    output_root: Path | None = None,
+) -> dict[str, object]:
+    """Compile the frozen prototype with the official PSE84 ML Pack preset."""
+    root = repository_root.resolve()
+    _, config, _, _ = validate_reference_bundle(root, config_path)
+    prototype_settings = config.get("non_release_hil_prototype")
+    settings = config.get("target_vela")
+    _require(
+        isinstance(prototype_settings, dict) and isinstance(settings, dict),
+        "target Vela configuration is missing",
+    )
+    executable = ml_coretools.expanduser().resolve()
+    _require(executable.is_file(), f"ML CoreTools executable not found: {executable}")
+    version_run = subprocess.run(
+        [str(executable), "--version"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    _require(version_run.returncode == 0, "ML CoreTools version query failed")
+    _require(
+        f"ml-coretools {settings['ml_coretools_version']}" in version_run.stdout
+        and f"ethos-u-vela {settings['vela_version']}" in version_run.stdout,
+        "official ML CoreTools/Vela version does not match the pinned configuration",
+    )
+
+    prototype_directory = _resolve_output(root, str(prototype_settings["directory"]))
+    manifest_path = prototype_directory / "manifest.json"
+    _require(manifest_path.is_file(), "freeze the non-release prototype first")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _require(
+        manifest.get("role") == PROTOTYPE_ROLE
+        and manifest.get("formal_m3_pass") is False
+        and manifest.get("numerical_contract_pass") is False,
+        "prototype/formal status separation changed",
+    )
+    target = settings["target"]
+    _require(isinstance(target, dict), "target Vela settings are invalid")
+    if output_root is None:
+        output_directory = _resolve_output(root, str(settings["output_directory"]))
+        report_path = _resolve_output(root, str(settings["report_path"]))
+    else:
+        output_directory = output_root.resolve()
+        report_path = output_directory / "e84_target_vela_compilation.json"
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    expected = settings["expected"]
+    members: list[dict[str, object]] = []
+    for artifact in manifest["artifacts"]:
+        seed = int(artifact["seed"])
+        source = root / str(artifact["path"])
+        _require(
+            sha256_file(source) == artifact["sha256"],
+            f"prototype source hash changed: {seed}",
+        )
+        member_directory = output_directory / f"member_seed{seed}"
+        member_directory.mkdir(parents=True, exist_ok=True)
+        key = f"fastreflex_seed{seed}"
+        tool_config = _ml_coretools_config(source, key, target)
+        tool_config_path = member_directory / "ml_coretools_config.json"
+        tool_config_path.write_text(
+            json.dumps(tool_config, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        command = [
+            str(executable),
+            "--verbose",
+            "--config",
+            str(tool_config_path),
+            "--output",
+            str(member_directory),
+            "--mode",
+            "deploy",
+        ]
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        console_path = member_directory / "ml_coretools_console.log"
+        console_path.write_text(completed.stdout, encoding="utf-8")
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"ML CoreTools failed for seed {seed}; see {console_path}"
+            )
+        compiled_matches = list(
+            (member_directory / "model_gen_dir").glob("*_vela_int8x8.tflite")
+        )
+        info_matches = list(
+            (member_directory / "info").glob("*_vela_int8x8.txt")
+        )
+        metrics_matches = list(
+            (member_directory / "info").glob("*_model_metrics.json")
+        )
+        _require(
+            len(compiled_matches) == len(info_matches) == len(metrics_matches) == 1,
+            f"unexpected ML CoreTools output set for seed {seed}",
+        )
+        compiled = compiled_matches[0]
+        summary = _vela_summary(info_matches[0].read_text(encoding="utf-8"))
+        metrics = json.loads(metrics_matches[0].read_text(encoding="utf-8"))
+        _require(
+            summary["cpu_operators"] == expected["cpu_operators_per_member"]
+            and summary["npu_operators"] == expected["npu_operators_per_member"],
+            f"target Vela CPU fallback/operator count changed: {seed}",
+        )
+        members.append(
+            {
+                "seed": seed,
+                "source": {
+                    "path": str(source.relative_to(root)),
+                    "bytes": source.stat().st_size,
+                    "sha256": sha256_file(source),
+                },
+                "command": command,
+                "vela_options": {
+                    "accelerator_config": target["accelerator_config"],
+                    "system_config": target["system_config"],
+                    "memory_mode": target["memory_mode"],
+                    "arena_cache_size": target["arena_cache_size"],
+                    "max_block_dependency": target["max_block_dependency"],
+                    "optimise": target["optimization_strategy"],
+                    "tensor_allocator": target["tensor_allocator"],
+                },
+                "compiled_model": {
+                    "path": str(compiled.relative_to(root))
+                    if root in compiled.parents
+                    else str(compiled),
+                    "bytes": compiled.stat().st_size,
+                    "sha256": sha256_file(compiled),
+                },
+                "tensor_arena_bytes": int(metrics["arena_size"]["int8x8"]),
+                **_compiled_ethosu_buffers(compiled),
+                **summary,
+            }
+        )
+
+    def integer_sum(name: str) -> int:
+        return sum(int(member[name]) for member in members)
+
+    def float_sum(name: str) -> float:
+        return sum(float(member[name]) for member in members)
+
+    result: dict[str, object] = {
+        "status": "E84_TARGET_VELA_COMPILATION_PASS",
+        "role": PROTOTYPE_ROLE,
+        "formal_status": M31_VERDICT,
+        "formal_m3_pass": False,
+        "numerical_contract_pass": False,
+        "toolchain": {
+            "machine_learning_pack_version": settings[
+                "machine_learning_pack_version"
+            ],
+            "machine_learning_pack_artifact_uuid": settings[
+                "machine_learning_pack_artifact_uuid"
+            ],
+            "machine_learning_pack_sha256": settings[
+                "machine_learning_pack_sha256"
+            ],
+            "ml_coretools_version": settings["ml_coretools_version"],
+            "vela_version": settings["vela_version"],
+            "version_output": version_run.stdout.strip(),
+            "executable": str(executable),
+            "vela_config_path": settings["vela_config_path"],
+        },
+        "official_example": settings["official_example"],
+        "bsp": settings["bsp"],
+        "target": target,
+        "placement": {
+            "vela_logical_constant_area": "OnChipFlash using SRAM characteristics",
+            "firmware_model_section": target["firmware_model_section"],
+            "application_execution": target["application_xip"],
+            "qualification": (
+                "Vela estimates are compiler estimates. Firmware linker placement "
+                "and physical runtime memory are reported separately."
+            ),
+        },
+        "members": members,
+        "three_member_sequential_summary": {
+            "compiled_model_bytes": sum(
+                int(member["compiled_model"]["bytes"]) for member in members
+            ),
+            "command_stream_bytes": integer_sum("command_stream_bytes"),
+            "constant_flash_tensor_bytes": integer_sum(
+                "constant_flash_tensor_bytes"
+            ),
+            "original_weights_kib": round(float_sum("original_weights_kib"), 2),
+            "npu_encoded_weights_kib": round(
+                float_sum("npu_encoded_weights_kib"), 2
+            ),
+            "macs": integer_sum("macs_per_inference"),
+            "npu_cycles": integer_sum("npu_cycles"),
+            "total_cycles": integer_sum("total_cycles"),
+            "estimated_inference_ms": round(
+                float_sum("tool_estimated_inference_ms"), 3
+            ),
+            "peak_sram_kib_if_arena_reused": max(
+                float(member["sram_kib"]) for member in members
+            ),
+            "tensor_arena_bytes_if_reused": max(
+                int(member["tensor_arena_bytes"]) for member in members
+            ),
+            "cpu_operators": integer_sum("cpu_operators"),
+            "npu_operators": integer_sum("npu_operators"),
+        },
+        "boundary": {
+            "compiler_estimate_only": True,
+            "board_execution_measured": False,
+            "scientific_verdict_changed": False,
+            "formal_numerical_contract_changed": False,
+            "m4_authorized": False,
+        },
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    result["report_path"] = str(report_path)
+    return result

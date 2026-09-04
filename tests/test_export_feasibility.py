@@ -219,3 +219,51 @@ def test_frozen_hil_prototype_identity_and_formal_separation() -> None:
             / f"member_seed{seed}_int8_probability.tflite"
         )
         assert sha256_file(path) == expected
+
+
+def test_target_vela_evidence_is_target_specific_and_non_release() -> None:
+    report = json.loads(
+        (ROOT / "reports/e84_target_vela_compilation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["status"] == "E84_TARGET_VELA_COMPILATION_PASS"
+    assert report["role"] == "NON_RELEASE_HIL_PATH_PROTOTYPE"
+    assert report["formal_status"] == M31_VERDICT
+    assert report["formal_m3_pass"] is False
+    assert report["numerical_contract_pass"] is False
+    assert report["target"]["accelerator_config"] == "ethos-u55-128"
+    assert report["target"]["system_config"] == (
+        "PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP"
+    )
+    assert report["target"]["memory_mode"] == "Sram_Only"
+    assert report["toolchain"]["vela_version"] == "4.3.0"
+
+    members = report["members"]
+    assert [member["seed"] for member in members] == [
+        20260828,
+        20260829,
+        20260830,
+    ]
+    assert all(member["cpu_operators"] == 0 for member in members)
+    assert all(member["npu_operators"] == 472 for member in members)
+    assert all(member["macs_per_inference"] == 212676 for member in members)
+    assert [member["command_stream_bytes"] for member in members] == [
+        33776,
+        33804,
+        33820,
+    ]
+    total = report["three_member_sequential_summary"]
+    assert total["compiled_model_bytes"] == 352592
+    assert total["total_cycles"] == 114231
+    assert total["tensor_arena_bytes_if_reused"] == 16384
+    assert total["cpu_operators"] == 0
+    assert report["boundary"]["board_execution_measured"] is False
+    assert report["boundary"]["m4_authorized"] is False
+
+    vela_config = (ROOT / "configs/vela/pse84_u55.ini").read_text(
+        encoding="utf-8"
+    )
+    assert "[System_Config.PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP]" in vela_config
+    assert "Sram_clock_scale=0.47" in vela_config
+    assert "[Memory_Mode.Sram_Only]" in vela_config

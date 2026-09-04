@@ -1,0 +1,229 @@
+{
+  "boundary": {
+    "board_execution_measured": false,
+    "compiler_estimate_only": true,
+    "formal_numerical_contract_changed": false,
+    "m4_authorized": false,
+    "scientific_verdict_changed": false
+  },
+  "bsp": {
+    "commit": "4894dd6a1ac2cee8be0d028476da4c7e9e640431",
+    "device": "PSE846GPS2DBZC4A",
+    "release": "release-v1.4.0",
+    "repository": "https://github.com/Infineon/TARGET_KIT_PSE84_AI"
+  },
+  "formal_m3_pass": false,
+  "formal_status": "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL",
+  "members": [
+    {
+      "command": [
+        "/tmp/mlpack/opt/Tools/ModusToolbox/packs/ModusToolbox-Machine-Learning-Pack/tools/ml-coretools/ml-coretools",
+        "--verbose",
+        "--config",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260828/ml_coretools_config.json",
+        "--output",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260828",
+        "--mode",
+        "deploy"
+      ],
+      "command_stream_bytes": 33776,
+      "compiled_model": {
+        "bytes": 117504,
+        "path": "model/vela/non_release_hil_prototype/member_seed20260828/model_gen_dir/FASTREFLEX_SEED20260828_vela_int8x8.tflite",
+        "sha256": "cd8084585cb49f95d8a8d38fc9f0827687f8e777456a252a9b1184b0f8b3b89b"
+      },
+      "constant_flash_tensor_bytes": 82352,
+      "cpu_operator_types": {},
+      "cpu_operators": 0,
+      "cpu_percent": 0.0,
+      "macs_per_inference": 212676,
+      "maximum_subgraph_kib": null,
+      "npu_cycles": 23363,
+      "npu_encoded_weights_kib": 11.84,
+      "npu_operator_types": {},
+      "npu_operators": 472,
+      "npu_percent": 100.0,
+      "off_chip_flash_kib": null,
+      "on_chip_flash_kib": 113.41,
+      "original_weights_kib": 10.56,
+      "seed": 20260828,
+      "source": {
+        "bytes": 165064,
+        "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260828_int8_probability.tflite",
+        "sha256": "04e1b5796fa0cac9240086230ee0d4389bbca89c133b9238758f1558dd266404"
+      },
+      "sram_kib": 3.5,
+      "tensor_arena_bytes": 16384,
+      "tool_estimated_inference_ms": 0.1,
+      "total_cycles": 38077,
+      "unsupported_semantics_warnings": 0,
+      "vela_options": {
+        "accelerator_config": "ethos-u55-128",
+        "arena_cache_size": 2936012,
+        "max_block_dependency": 3,
+        "memory_mode": "Sram_Only",
+        "optimise": "Performance",
+        "system_config": "PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP",
+        "tensor_allocator": "HillClimb"
+      }
+    },
+    {
+      "command": [
+        "/tmp/mlpack/opt/Tools/ModusToolbox/packs/ModusToolbox-Machine-Learning-Pack/tools/ml-coretools/ml-coretools",
+        "--verbose",
+        "--config",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260829/ml_coretools_config.json",
+        "--output",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260829",
+        "--mode",
+        "deploy"
+      ],
+      "command_stream_bytes": 33804,
+      "compiled_model": {
+        "bytes": 117280,
+        "path": "model/vela/non_release_hil_prototype/member_seed20260829/model_gen_dir/FASTREFLEX_SEED20260829_vela_int8x8.tflite",
+        "sha256": "a1aa82f7529afd308a2cf2ed7f507ebcef64e23cfe1e5c2e386a52a8fa7091ab"
+      },
+      "constant_flash_tensor_bytes": 82096,
+      "cpu_operator_types": {},
+      "cpu_operators": 0,
+      "cpu_percent": 0.0,
+      "macs_per_inference": 212676,
+      "maximum_subgraph_kib": null,
+      "npu_cycles": 23363,
+      "npu_encoded_weights_kib": 11.84,
+      "npu_operator_types": {},
+      "npu_operators": 472,
+      "npu_percent": 100.0,
+      "off_chip_flash_kib": null,
+      "on_chip_flash_kib": 113.19,
+      "original_weights_kib": 10.56,
+      "seed": 20260829,
+      "source": {
+        "bytes": 165280,
+        "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260829_int8_probability.tflite",
+        "sha256": "bda9b7f7776a981e0f0529052997fc5b4c57fabec2f67f1eec11804cd464a20c"
+      },
+      "sram_kib": 3.5,
+      "tensor_arena_bytes": 16384,
+      "tool_estimated_inference_ms": 0.1,
+      "total_cycles": 38077,
+      "unsupported_semantics_warnings": 0,
+      "vela_options": {
+        "accelerator_config": "ethos-u55-128",
+        "arena_cache_size": 2936012,
+        "max_block_dependency": 3,
+        "memory_mode": "Sram_Only",
+        "optimise": "Performance",
+        "system_config": "PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP",
+        "tensor_allocator": "HillClimb"
+      }
+    },
+    {
+      "command": [
+        "/tmp/mlpack/opt/Tools/ModusToolbox/packs/ModusToolbox-Machine-Learning-Pack/tools/ml-coretools/ml-coretools",
+        "--verbose",
+        "--config",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260830/ml_coretools_config.json",
+        "--output",
+        "/d/shin/Infineon_FastReflex_E84/model/vela/non_release_hil_prototype/member_seed20260830",
+        "--mode",
+        "deploy"
+      ],
+      "command_stream_bytes": 33820,
+      "compiled_model": {
+        "bytes": 117808,
+        "path": "model/vela/non_release_hil_prototype/member_seed20260830/model_gen_dir/FASTREFLEX_SEED20260830_vela_int8x8.tflite",
+        "sha256": "6fdedf56dc6dffd93fcd4c824c5ba2449342d56391231607bd34f153123c4032"
+      },
+      "constant_flash_tensor_bytes": 82608,
+      "cpu_operator_types": {},
+      "cpu_operators": 0,
+      "cpu_percent": 0.0,
+      "macs_per_inference": 212676,
+      "maximum_subgraph_kib": null,
+      "npu_cycles": 23363,
+      "npu_encoded_weights_kib": 11.84,
+      "npu_operator_types": {},
+      "npu_operators": 472,
+      "npu_percent": 100.0,
+      "off_chip_flash_kib": null,
+      "on_chip_flash_kib": 113.7,
+      "original_weights_kib": 10.56,
+      "seed": 20260830,
+      "source": {
+        "bytes": 165208,
+        "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260830_int8_probability.tflite",
+        "sha256": "a60c1764a05dd8b8a193a6534729e6a72d45f312f035f537a75cb23217666dc7"
+      },
+      "sram_kib": 3.5,
+      "tensor_arena_bytes": 16384,
+      "tool_estimated_inference_ms": 0.1,
+      "total_cycles": 38077,
+      "unsupported_semantics_warnings": 0,
+      "vela_options": {
+        "accelerator_config": "ethos-u55-128",
+        "arena_cache_size": 2936012,
+        "max_block_dependency": 3,
+        "memory_mode": "Sram_Only",
+        "optimise": "Performance",
+        "system_config": "PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP",
+        "tensor_allocator": "HillClimb"
+      }
+    }
+  ],
+  "numerical_contract_pass": false,
+  "official_example": {
+    "commit": "625e450523bd653eb02ef449b691c8679e28beb2",
+    "release": "release-v2.3.0",
+    "repository": "https://github.com/Infineon/mtb-example-psoc-edge-ml-profiler"
+  },
+  "placement": {
+    "application_execution": "external_qspi",
+    "firmware_model_section": ".cy_socmem_data",
+    "qualification": "Vela estimates are compiler estimates. Firmware linker placement and physical runtime memory are reported separately.",
+    "vela_logical_constant_area": "OnChipFlash using SRAM characteristics"
+  },
+  "role": "NON_RELEASE_HIL_PATH_PROTOTYPE",
+  "status": "E84_TARGET_VELA_COMPILATION_PASS",
+  "target": {
+    "accelerator_config": "ethos-u55-128",
+    "application_xip": "external_qspi",
+    "arena_cache_size": 2936012,
+    "core_clock_hz": 400000000,
+    "firmware_model_section": ".cy_socmem_data",
+    "max_block_dependency": 3,
+    "memory_mode": "Sram_Only",
+    "name": "PSE84_M55_U55",
+    "optimization_strategy": "Performance",
+    "recursion_limit": 1000,
+    "socmem_clock_hz": 200000000,
+    "system_config": "PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP",
+    "tensor_allocator": "HillClimb"
+  },
+  "three_member_sequential_summary": {
+    "command_stream_bytes": 101400,
+    "compiled_model_bytes": 352592,
+    "constant_flash_tensor_bytes": 247056,
+    "cpu_operators": 0,
+    "estimated_inference_ms": 0.3,
+    "macs": 638028,
+    "npu_cycles": 70089,
+    "npu_encoded_weights_kib": 35.52,
+    "npu_operators": 1416,
+    "original_weights_kib": 31.68,
+    "peak_sram_kib_if_arena_reused": 3.5,
+    "tensor_arena_bytes_if_reused": 16384,
+    "total_cycles": 114231
+  },
+  "toolchain": {
+    "executable": "/tmp/mlpack/opt/Tools/ModusToolbox/packs/ModusToolbox-Machine-Learning-Pack/tools/ml-coretools/ml-coretools",
+    "machine_learning_pack_artifact_uuid": "708b03a5-1c48-4fa8-9069-1687d9bc900f",
+    "machine_learning_pack_sha256": "1d1de67afddc15b9603fde8ba74027ec35490a896467a2dbf3c3b24434410b7e",
+    "machine_learning_pack_version": "3.0.0.2416",
+    "ml_coretools_version": "3.0.0.8948",
+    "vela_config_path": "configs/vela/pse84_u55.ini",
+    "vela_version": "4.3.0",
+    "version_output": "2026-09-04 16:49:33.686093: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.\n2026-09-04 16:49:33.719873: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.\nTo enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.\n\nml-coretools 3.0.0.8948 based on TensorFlow 2.19.1 and ethos-u-vela 4.3.0\n    ml-coretools-middleware-streaming 3.1.0.15478\n    ml-coretools-tflm-qemu-images 3.1.0.15478"
+  }
+}
