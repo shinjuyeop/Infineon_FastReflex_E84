@@ -1,0 +1,104 @@
+{
+  "board_execution_status": "E84_BOARD_EXECUTION_PASS",
+  "boundary": {
+    "formal_numerical_contract_changed": false,
+    "m4_authorized": false,
+    "model_tuned_from_hil": false,
+    "scientific_verdict_changed": false
+  },
+  "formal_status": "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL",
+  "hil_status": "E84_RAW_1KHZ_HIL_FAIL",
+  "preprocessing_parity": {
+    "base_and_causal_max_absolute_error": 9.5367431640625e-07,
+    "normalized_and_window_max_absolute_error": 1.4901161193847656e-06,
+    "rolling_int8_window_exact": true,
+    "status": "PASS"
+  },
+  "prototype_role": "NON_RELEASE_HIL_PATH_PROTOTYPE",
+  "runs": {
+    "feature_100_hz": {
+      "board_deadline_misses": 0,
+      "board_dropped_samples": 0,
+      "compared_inference_results": 121,
+      "missing_results": 0,
+      "status": "TRANSPORT_PASS_STRICT_NUMERICAL_PARITY_FAIL",
+      "three_member_inference_p95_us": 745
+    },
+    "raw_1000_hz": {
+      "board_deadline_misses": 0,
+      "board_dropped_samples": 0,
+      "board_processed_samples": 140,
+      "board_received_samples": 140,
+      "host_crc_errors": 35,
+      "host_missing_results": 35,
+      "host_sequence_gaps": 35,
+      "inference_total_processing_max_us": 832,
+      "inference_total_processing_mean_us": 830.471264367816,
+      "inference_total_processing_p95_us": 831,
+      "response_latency_max_us": 12791.929,
+      "response_latency_mean_us": 5962.8698,
+      "response_latency_p95_us": 8613.1456,
+      "status": "FAIL",
+      "three_member_inference_max_us": 746,
+      "three_member_inference_mean_us": 744.4597701149426,
+      "three_member_inference_p95_us": 745
+    },
+    "raw_900_hz_repeat_a": {
+      "board_deadline_misses": 0,
+      "board_dropped_samples": 0,
+      "deployment_trace_sha256": "255cd14ee7d89ba0048b49b2e888b6ad4949063b5217afe6c93d7427f975b7be",
+      "host_crc_errors": 0,
+      "missing_results": 0,
+      "response_latency_max_us": 12157.058,
+      "response_latency_mean_us": 6113.893792857143,
+      "response_latency_p95_us": 9000.1394,
+      "sequence_gaps": 0,
+      "status": "TRANSPORT_AND_DEADLINE_PASS_STRICT_NUMERICAL_PARITY_FAIL"
+    },
+    "raw_900_hz_repeat_b": {
+      "board_deadline_misses": 0,
+      "board_dropped_samples": 0,
+      "deployment_trace_sha256": "255cd14ee7d89ba0048b49b2e888b6ad4949063b5217afe6c93d7427f975b7be",
+      "host_crc_errors": 0,
+      "missing_results": 0,
+      "response_latency_max_us": 12482.358,
+      "response_latency_mean_us": 6179.088642857143,
+      "response_latency_p95_us": 8996.2907,
+      "sequence_gaps": 0,
+      "status": "TRANSPORT_AND_DEADLINE_PASS_STRICT_NUMERICAL_PARITY_FAIL"
+    },
+    "raw_925_hz": {
+      "qualification": "two clean repeats were observed, followed by a run with two corrupted/missing result frames; not considered reliably sustainable",
+      "status": "INTERMITTENT"
+    },
+    "window_10_hz": {
+      "board_deadline_misses": 121,
+      "board_dropped_samples": 0,
+      "compared_inference_results": 121,
+      "missing_results": 0,
+      "status": "TRACE_COMPLETE_STRICT_NUMERICAL_AND_1MS_DIAGNOSTIC_PATH_FAIL",
+      "three_member_inference_p95_us": 745,
+      "total_processing_p95_us": 1077
+    }
+  },
+  "runtime_parity": {
+    "comparison": "host_int8_prototype_vs_actual_target_vela_e84_not_scientific_validation",
+    "ensemble_maximum_absolute_error": 0.014322916666666657,
+    "member_maximum_absolute_error": 0.04296875,
+    "output_quantum_tolerance": 0.00390625,
+    "persistence_count_mismatches": 0,
+    "reflex_onset_mismatches": 0,
+    "reflex_required_mismatches": 0,
+    "status": "STRICT_NUMERICAL_PARITY_FAIL_DISCRETE_PARITY_PASS",
+    "threshold_crossing_mismatches": 0
+  },
+  "transport": {
+    "baud": 1000000,
+    "highest_reliably_repeated_clean_raw_rate_hz": 900,
+    "intermittent_rate_hz": 925,
+    "response_frame_bytes": 94,
+    "response_wire_time_us": 940,
+    "three_mbps_supported": false,
+    "two_mbps_qualification": "raw improved but feature/window payloads failed; rejected as canonical"
+  }
+}

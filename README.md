@@ -60,13 +60,53 @@ Frozen Float Model
 
 `INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL`
 
-Research가 exact effective TRAIN 442개 run에서 model/quantization 결과를 보지 않고 고른 2,597개 causal window를 18-file handoff에 추가했다. Deployment는 per-tensor 입력의 극단 tail 문제를 완화하기 위해 TRAIN 절대값 99 percentile인 `±4.1328436`을 calibration 범위로 사용했다. 입력은 INT8 scale `0.03241446`, zero point `0`, NPU softmax 출력은 scale `1/256`, zero point `-128`이다.
+Formal model status and non-release deployment status are independent:
 
-M3.1의 actual 302-op graph trace에서 오차는 recurrent step 이전의 shared input projection에서 이미 material해지고, hidden-state error가 seed별 t=`2 / 3 / 1`부터 `0.10`을 넘은 뒤 feedback으로 누적됨을 확인했다. Worst window에는 input saturation이 없고 sigmoid/tanh, classifier, softmax에서 단번에 생기는 collapse도 아니다. Seed `20260829/20260830`의 20-step hidden Jacobian gain은 `26.66/19.79`로 seed `20260828`의 `5.12`보다 훨씬 커서 비슷한 초기 양자화 오차를 크게 증폭한다.
+| Gate | Status |
+|---|---|
+| M1 Host Float | PASS |
+| M2.1 Float numerical contract | PASS |
+| M3 Formal INT8 | FAIL |
+| M3.1 PTQ recovery | FAIL |
+| 16-channel non-release prototype freeze | PASS |
+| E84 target-specific Vela, CPU fallback 0 | PASS |
+| Release firmware build / flash / boot / three-member U55 execution | PASS |
+| Full window/feature/raw deployment trace execution | PASS |
+| Strict host INT8 vs target-Vela numerical parity | FAIL |
+| Raw 1 kHz no-loss HIL | FAIL |
 
-Golden을 사용하지 않고 TRAIN 2,597개 전체의 ensemble p95로 선택한 best PTQ 표현은 gate마다 두 개의 고정 16-channel projection block을 둔다. Baseline member max `0.1065 / 0.8876 / 0.8983`은 `0.2190 / 0.2614 / 0.1286`으로, ensemble max/p95/bias는 `0.0833 / 0.0407 / -0.00205`로 개선됐다. 모든 discrete 결과와 onset `[65,90,107]`은 exact이고 Vela에서 각 member가 `0 CPU / 472 NPU`이지만, member max `0.2614`가 기존 `<=0.10` 계약을 여전히 위반한다.
+The TRAIN-only-selected 16-channel representation is frozen solely as
+`NON_RELEASE_HIL_PATH_PROTOTYPE`. Its canonical member maximum errors remain
+`0.2190 / 0.2614 / 0.1286`; ensemble max/p95/bias remain
+`0.0833 / 0.0407 / -0.00205`. This still violates the formal member maximum
+contract `<= 0.10`. It is not an approved, release, production, real-robot, or
+safety-certified model, and M4 remains **NOT AUTHORIZED**.
 
-따라서 M3.1은 partial recovery이지만 FAIL이다. Best 후보를 freeze하지 않았고 formal M3를 재실행하지 않았으며 M4도 승인되지 않는다. 다음 단계는 Research의 reviewed QAT 또는 deployment-aware recurrent model 변경 검토다. Candidate role은 계속 `DEPLOYMENT_ENGINEERING_REFERENCE_MODEL`, scientific verdict는 계속 `MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED`다. Research, firmware, flash, board execution과 HIL은 수정하거나 시작하지 않았다.
+ML Pack 3.0.0.2416 / CoreTools 3.0.0.8948 / Vela 4.3.0 compiled each member
+for the actual `ethos-u55-128` and
+`PSE8x_U55_400MHz_SOCMEM_200MHz_QUAD_XIP` configuration with 0 CPU and 472 NPU
+operators. The three compiled blobs total 352,592 bytes, 638,028 MACs, and an
+estimated 114,231 cycles.
+
+The checked-in ModusToolbox project builds in Release, flashes
+`PSE846GPS2DBZC4A`, boots with `CYBOOT_SUCCESS`, and executes all three U55
+members. Actual raw-path timing is about 745 µs p95 for the three members and
+831 µs p95 total processing, with zero board deadline misses. Firmware C
+preprocessing matches the golden chain to `1.49e-6`, and the rolling INT8
+window is exact.
+
+HIL remains fail-closed. At the canonical 1 Mbps KitProg3 link, repeated 900 Hz
+raw traces are complete and deterministic, 925 Hz is intermittent, and 1 kHz
+produces result-frame CRC/loss even though the board receives/processes all 140
+inputs with zero board drops or deadline misses. Target-Vela output differs
+from the original host INT8 prototype by member max `0.04296875` and ensemble
+max `0.0143229167`, exceeding the one-quantum diagnostic tolerance. Threshold,
+persistence, reflex decision, and onset remain exact for every comparable
+result. No model or decision tuning was performed.
+
+Scientific status remains
+`MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED` and
+`SIMULATION_GENERALIZATION_EVIDENCE_NOT_SUPPORTED`.
 
 ## 구조
 
@@ -78,8 +118,8 @@ model/quantized/          생성된 quantized model 경계
 model/vela/               생성된 Vela output 경계
 src/fastreflex_e84/       독립 Host Float runtime과 handoff validator
 tools/                    deployment 도구와 환경 점검
-firmware/                 향후 ModusToolbox project 경계
-hil/host/                 향후 host-side HIL 경계
+firmware/fastreflex_e84/  ModusToolbox CM33 secure/non-secure + CM55/U55 project
+hil/host/                 binary protocol replay and fail-closed HIL runner
 docs/                     pipeline 및 model contract
 reports/                  runtime validation 보고서 경계
 tests/                    handoff, parity와 operator-feasibility test suite
@@ -107,4 +147,9 @@ PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q
 python tools/verify_environment.py
 ```
 
-생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. Historical M2 evidence는 [`reports/export_target_operator_feasibility.md`](reports/export_target_operator_feasibility.md), M2.1 resolution은 [`reports/float_numerical_contract_resolution.md`](reports/float_numerical_contract_resolution.md), M3 결과는 [`reports/int8_quantization_and_parity.md`](reports/int8_quantization_and_parity.md), M3.1 결과는 [`reports/int8_recurrent_error_localization_and_ptq_recovery.md`](reports/int8_recurrent_error_localization_and_ptq_recovery.md)에 있다.
+생성된 TFLite/Vela 결과와 상세 log는 Git에 포함되지 않는다. Prototype과
+hardware evidence는 [`reports/int8_16ch_hil_prototype_freeze.md`](reports/int8_16ch_hil_prototype_freeze.md),
+[`reports/e84_target_vela_compilation.md`](reports/e84_target_vela_compilation.md),
+[`reports/e84_firmware_integration.md`](reports/e84_firmware_integration.md),
+[`reports/e84_hil_runtime_validation.md`](reports/e84_hil_runtime_validation.md)에
+있다. Historical M2/M3/M3.1 reports는 `reports/`에 그대로 보존한다.

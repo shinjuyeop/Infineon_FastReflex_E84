@@ -11,10 +11,10 @@ Reviewed Frozen Float Model + Contract
   -> M3 INT8 quantization and parity                                   [FAIL]
   -> M3 formal-model Vela / Ethos-U55 mapping                         [PASS, GENERIC]
   -> M3.1 recurrent localization / PTQ recovery                        [FAIL]
-  -> Target-specific Vela / Ethos-U55 compilation                     [NOT STARTED]
-  -> Firmware integration                                             [NOT STARTED]
-  -> KIT_PSE84_AI execution                                           [NOT STARTED]
-  -> HIL and runtime latency/RAM/Flash validation                      [NOT STARTED]
+  -> Freeze 16-channel NON_RELEASE_HIL_PATH_PROTOTYPE                 [PASS]
+  -> Target-specific Vela / Ethos-U55 compilation                     [PASS]
+  -> Firmware integration + KIT_PSE84_AI execution                    [PASS]
+  -> Raw 1 kHz no-loss HIL                                             [FAIL]
 ```
 
 ## Completed gate: M1
@@ -57,8 +57,21 @@ All three selected models are byte-deterministic and retain complete formal U55 
 
 Actual intermediate tracing localizes the first material error to the shared per-tensor input projection before recurrent timestep 0. Sigmoid/tanh initially attenuate it, but high-gain hidden dynamics accumulate the perturbation. Worst-window hidden error first exceeds `0.10` at t=2/3/1 for seeds `20260828/20260829/20260830`; 20-step hidden Jacobian-product norms are `5.12/26.66/19.79`. Input saturation, classifier, and softmax are not the primary cause.
 
-With the formal TRAIN p99 calibration fixed, M3.1 tested mathematically equivalent gate and channel partitions. A 16-channel block representation was selected solely by p95 error on all 2,597 TRAIN-derived windows. On canonical golden it improves ensemble max/p95/bias to `0.0833/0.0407/-0.00205` and retains exact decisions and `0 CPU / 472 NPU` mapping, but member maximum error remains `0.2614` against the unchanged `0.10` gate. It was not frozen and formal M3 was not rerun.
+With the formal TRAIN p99 calibration fixed, M3.1 tested mathematically equivalent gate and channel partitions. A 16-channel block representation was selected solely by p95 error on all 2,597 TRAIN-derived windows. On canonical golden it improves ensemble max/p95/bias to `0.0833/0.0407/-0.00205` and retains exact decisions and `0 CPU / 472 NPU` mapping, but member maximum error remains `0.2614` against the unchanged `0.10` gate. It was later frozen only under the separate `NON_RELEASE_HIL_PATH_PROTOTYPE` role; formal M3 was not rerun.
 
-## Next gate
+## Non-release E84 path
 
-M4 is not authorized. The deployment-side PTQ investigation is exhausted for the practical full-INT8 representations evaluated here. Return to Research for reviewed QAT or a deployment-aware recurrent model change without altering this repository's frozen scientific evidence. Firmware, board execution, and HIL remain not started.
+Official PSE84 ML CoreTools compiled the three frozen prototype members for the
+actual U55 configuration with zero CPU fallback. The checked-in ModusToolbox
+project builds, flashes, boots, and completes window, feature, and raw traces on
+the selected E84 board. Runtime preprocessing matches the golden chain and raw
+processing completes below 1 ms.
+
+The 1 kHz HIL gate nevertheless fails: the synchronous 1 Mbps response channel
+loses/corrupts frames. Repeated 900 Hz raw runs are clean; 925 Hz is intermittent.
+Strict target-Vela numerical parity also fails, although all compared decision
+states are exact. See the firmware/HIL reports for measured timing and memory.
+
+M4 remains not authorized. The next deployment task is an asynchronous or
+otherwise verified 1 kHz transport and target-numerical localization, without
+changing the model from HIL evidence.

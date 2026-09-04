@@ -11,3 +11,10 @@ M2.1 Research-owned batch-1 contract와 E84 revalidation 결과는 [`float_numer
 M3 TRAIN-only calibration, 세 member INT8 parity, threshold sensitivity와 formal-model Vela 결과는 [`int8_quantization_and_parity.md`](int8_quantization_and_parity.md)에 있다.
 
 M3.1 actual recurrent intermediate localization, focused PTQ recovery, residual numerical-contract failure와 Research return decision은 [`int8_recurrent_error_localization_and_ptq_recovery.md`](int8_recurrent_error_localization_and_ptq_recovery.md)에 있다.
+
+Formal failure를 변경하지 않는 non-release engineering path는
+[`int8_16ch_hil_prototype_freeze.md`](int8_16ch_hil_prototype_freeze.md),
+[`e84_target_vela_compilation.md`](e84_target_vela_compilation.md),
+[`e84_firmware_integration.md`](e84_firmware_integration.md),
+[`e84_hil_runtime_validation.md`](e84_hil_runtime_validation.md)에 순서대로
+기록한다. 각 보고서의 JSON companion은 같은 verdict와 provenance를 제공한다.

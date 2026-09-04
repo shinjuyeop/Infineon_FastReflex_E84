@@ -1,0 +1,94 @@
+{
+  "board": {
+    "boot_status": "CYBOOT_SUCCESS",
+    "device": "PSE846GPS2DBZC4A",
+    "kit": "KIT_PSE84_AI",
+    "kitprog_firmware": "2.80.1529",
+    "kitprog_latest_detected": "2.81.1663",
+    "lifecycle": "DEVELOPMENT",
+    "probe_serial": "13070E98012D2400",
+    "silicon": "0xED94 family 0x115 revision B0",
+    "vtarget_volts": 1.801
+  },
+  "boundary": {
+    "formal_numerical_contract_changed": false,
+    "m4_authorized": false,
+    "production_ready": false,
+    "real_robot_supported": false,
+    "scientific_verdict_changed": false
+  },
+  "build": {
+    "combined_hex_sha256": "166ba89db63494b3c12a55a9ddf979ee44093112603ea773c64720931d3f42cc",
+    "configuration": "Release",
+    "gcc_arm": "14.2.1",
+    "modus_toolbox": "3.8",
+    "status": "PASS",
+    "cm55_elf_sha256": "cd31bf926f7d1c3400d182469b22b5630a5c9c081d43696d4aef159b3a2fcc30",
+    "target": "APP_KIT_PSE84_AI"
+  },
+  "firmware_project": "firmware/fastreflex_e84",
+  "flash": {
+    "command": "make qprogram CY_TOOLS_DIR=/opt/Tools/ModusToolbox/tools_3.8 MTB_PROBE_SERIAL=13070E98012D2400",
+    "last_verified_bytes": 976436,
+    "status": "PASS"
+  },
+  "formal_status": "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL",
+  "memory": {
+    "cm55_dtcm": {
+      "bss_bytes": 28492,
+      "data_bytes": 508,
+      "noinit_bytes": 120,
+      "used_bytes": 29120
+    },
+    "cm55_itcm_used_bytes": 1496,
+    "cm55_nvm_used_bytes": 671052,
+    "communication_payload_buffer_bytes": 6400,
+    "direct_float_window_buffer_bytes": 6400,
+    "int8_window_buffer_bytes": 1600,
+    "model_section_bytes": 352680,
+    "preprocessor_state_bytes": 8416,
+    "smif_total_used_bytes": 977456,
+    "socmem_heap_capacity_bytes": 2514520,
+    "stack_reservation_bytes": 4096,
+    "tensor_arena_configured_bytes_each": 16384,
+    "tensor_arena_configured_bytes_three_models": 49152,
+    "tensor_arena_runtime_high_water_measured": false
+  },
+  "models": {
+    "compiled_blob_bytes": 352592,
+    "cpu_fallback_operators": 0,
+    "members": [
+      {
+        "bytes": 117504,
+        "seed": 20260828,
+        "sha256": "cd8084585cb49f95d8a8d38fc9f0827687f8e777456a252a9b1184b0f8b3b89b"
+      },
+      {
+        "bytes": 117280,
+        "seed": 20260829,
+        "sha256": "a1aa82f7529afd308a2cf2ed7f507ebcef64e23cfe1e5c2e386a52a8fa7091ab"
+      },
+      {
+        "bytes": 117808,
+        "seed": 20260830,
+        "sha256": "6fdedf56dc6dffd93fcd4c824c5ba2449342d56391231607bd34f153123c4032"
+      }
+    ],
+    "npu_operators": 1416,
+    "source_manifest": "firmware/fastreflex_e84/proj_cm55/mtb_ml_gen/asset_manifest.json"
+  },
+  "prototype_role": "NON_RELEASE_HIL_PATH_PROTOTYPE",
+  "source": {
+    "bsp_commit": "4894dd6a1ac2cee8be0d028476da4c7e9e640431",
+    "bsp_release": "release-v1.4.0",
+    "example_commit": "625e450523bd653eb02ef449b691c8679e28beb2",
+    "example_release": "release-v2.3.0"
+  },
+  "status": "E84_BOARD_EXECUTION_PASS",
+  "uart": {
+    "baud": 1000000,
+    "framing": "8N1",
+    "protocol": "FastReflex binary v1 with CRC32",
+    "transport": "KitProg3 virtual COM"
+  }
+}
