@@ -249,3 +249,24 @@ target_vela:
     npu_operators_per_member: 472
     input_shape: [1, 20, 80]
     output_shape: [1, 2]
+
+firmware:
+  project_directory: firmware/fastreflex_e84
+  generated_asset_directory: firmware/fastreflex_e84/proj_cm55/mtb_ml_gen
+  source_project:
+    repository: https://github.com/Infineon/mtb-example-psoc-edge-ml-profiler
+    commit: 625e450523bd653eb02ef449b691c8679e28beb2
+    release: release-v2.3.0
+  bsp:
+    repository: https://github.com/Infineon/TARGET_KIT_PSE84_AI
+    commit: 4894dd6a1ac2cee8be0d028476da4c7e9e640431
+    release: release-v1.4.0
+    target: APP_KIT_PSE84_AI
+    device: PSE846GPS2DBZC4A
+  toolchain:
+    modus_toolbox: 3.8
+    gcc_arm: 14.2.1
+  uart:
+    transport: KitProg3 virtual COM
+    baud: 1000000
+    framing: 8N1

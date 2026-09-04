@@ -1,5 +1,6 @@
 # Firmware
 
-향후 KIT_PSE84_AI / PSoC Edge E84 firmware integration의 경계다. 실제 ModusToolbox project와 generated firmware는 아직 없다.
-
-Firmware migration은 frozen model contract와 target toolchain이 검토된 뒤 별도 milestone에서 수행한다.
+The canonical target application is [`fastreflex_e84`](fastreflex_e84/README.md).
+It is a reproducible ModusToolbox three-domain project for `KIT_PSE84_AI`, not a
+release or real-robot firmware image. Generated builds and staged model blobs
+remain ignored.

@@ -6,6 +6,9 @@ Quantization, target conversion, Vela 및 artifact verification의 canonical 도
 - `deployment.py evaluate-export`: three frozen member를 Float32 TFLite built-in graph로 내리고 golden parity를 측정한 뒤, 최소 INT8+softmax operator probe를 Vela/Ethos-U55-128에 컴파일한다. 생성 artifact와 log는 ignored deployment output 경계에 둔다.
 - `deployment.py evaluate-int8`: Research TRAIN calibration을 검증하고 세 member의 selected/alternative INT8 표현, probability/decision parity, byte determinism과 formal-model Vela mapping을 평가한다.
 - `deployment.py evaluate-int8-recovery`: actual lowered graph의 20-step recurrent intermediate를 trace하고, TRAIN-only criterion으로 focused projection-partition PTQ 후보를 선택한 뒤 golden contract와 Vela mapping을 fail-closed 평가한다.
+- `deployment.py freeze-prototype`: reproduced 16-channel representation을 formal artifacts와 분리된 non-release prototype으로 freeze한다.
+- `deployment.py compile-target-vela`: pinned PSE84 ML CoreTools와 actual U55 memory configuration으로 prototype 세 member를 compile한다.
+- `deployment.py stage-firmware-assets`: target-Vela/model hash를 검증하고 ignored ModusToolbox build-input 경계에 C blobs와 normalizer를 생성한다.
 - `verify_environment.py`: Python, NumPy, PyYAML, PyTorch와 현재 milestone 상태를 확인한다.
 
 ```bash
@@ -13,6 +16,9 @@ python tools/deployment.py verify-reference
 python tools/deployment.py evaluate-export
 python tools/deployment.py evaluate-int8  # current expected exit: 2
 python tools/deployment.py evaluate-int8-recovery  # current expected exit: 2
+python tools/deployment.py freeze-prototype
+python tools/deployment.py compile-target-vela --ml-coretools /path/to/ml-coretools
+python tools/deployment.py stage-firmware-assets
 python tools/verify_environment.py
 ```
 

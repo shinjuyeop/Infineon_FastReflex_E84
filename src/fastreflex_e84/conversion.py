@@ -17,7 +17,12 @@ import numpy as np
 import torch
 
 from .handoff import DEFAULT_CONFIG, sha256_file, validate_reference_bundle
-from .reference_runtime import MEMBER_SEEDS, apply_decision, load_ensemble
+from .reference_runtime import (
+    MEMBER_SEEDS,
+    apply_decision,
+    load_ensemble,
+    load_normalizer,
+)
 
 
 M2_VERDICT = "FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS"
@@ -421,6 +426,52 @@ def _run_int8_model(
                 np.percentile(all_input_error, 99)
             ),
         },
+    }
+
+
+def run_frozen_int8_prototype(
+    repository_root: Path,
+    windows: np.ndarray,
+    config_path: Path = DEFAULT_CONFIG,
+) -> dict[str, np.ndarray]:
+    """Run the frozen prototype artifacts as the host deployment oracle."""
+    root = repository_root.resolve()
+    _, config, _, _ = validate_reference_bundle(root, config_path)
+    settings = config.get("non_release_hil_prototype")
+    _require(isinstance(settings, dict), "non-release prototype config is missing")
+    manifest_path = _resolve_output(root, str(settings["directory"])) / "manifest.json"
+    _require(manifest_path.is_file(), "frozen prototype manifest is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _require(
+        manifest.get("role") == PROTOTYPE_ROLE
+        and manifest.get("formal_m3_pass") is False
+        and manifest.get("numerical_contract_pass") is False,
+        "prototype/formal boundary changed",
+    )
+    values = np.asarray(windows, dtype=np.float32)
+    _require(
+        values.ndim == 3 and values.shape[1:] == (20, 80),
+        "prototype host oracle requires [N,20,80] windows",
+    )
+    members: list[np.ndarray] = []
+    for artifact in manifest["artifacts"]:
+        model_path = root / str(artifact["path"])
+        _require(
+            model_path.is_file() and sha256_file(model_path) == artifact["sha256"],
+            f"prototype model identity changed: {artifact['seed']}",
+        )
+        output, _ = _run_int8_model(model_path, values)
+        members.append(output[:, 1].astype(np.float64))
+    probabilities = np.stack(members)
+    ensemble = np.mean(probabilities, axis=0, dtype=np.float64)
+    crossing, counts, reflex, onset = apply_decision(ensemble)
+    return {
+        "member_hazard_probability": probabilities,
+        "ensemble_hazard_probability": ensemble,
+        "threshold_crossing": crossing,
+        "consecutive_threshold_count": counts,
+        "reflex_required": reflex,
+        "reflex_onset": onset,
     }
 
 
@@ -2504,10 +2555,8 @@ def freeze_non_release_hil_prototype(
         "reproduced M3.1 selection does not match the prototype contract",
     )
     _require(
-        recovery.get("calibration", {}).get("symmetric_absolute_percentile")
-        == 99.0
-        and recovery.get("calibration", {}).get("clipping_bound")
-        == 4.132843623161313
+        recovery.get("calibration", {}).get("symmetric_absolute_percentile") == 99.0
+        and recovery.get("calibration", {}).get("clipping_bound") == 4.132843623161313
         and recovery.get("calibration", {}).get("policy_changed_from_formal_m3")
         is False,
         "prototype calibration policy changed",
@@ -2585,18 +2634,14 @@ def freeze_non_release_hil_prototype(
             }
         )
 
-    member_parity = golden_evaluation["parity"][
-        "member_hazard_probability_by_seed"
-    ]
+    member_parity = golden_evaluation["parity"]["member_hazard_probability_by_seed"]
     for seed in seeds:
         _require(
             member_parity[str(seed)]["maximum_absolute_error"]
             == settings["expected_member_maximum_absolute_error"][str(seed)],
             f"prototype member metric changed: {seed}",
         )
-    ensemble_parity = golden_evaluation["parity"][
-        "ensemble_hazard_probability"
-    ]
+    ensemble_parity = golden_evaluation["parity"]["ensemble_hazard_probability"]
     for name, expected in settings["expected_ensemble"].items():
         _require(ensemble_parity[name] == expected, f"ensemble metric changed: {name}")
     exact_parity = {
@@ -2671,9 +2716,7 @@ def freeze_non_release_hil_prototype(
         "status": "NON_RELEASE_HIL_PATH_PROTOTYPE_FROZEN",
         "prototype_manifest": str(manifest_path),
         "prototype_manifest_sha256": sha256_file(manifest_path),
-        "artifact_sha256": {
-            str(row["seed"]): row["sha256"] for row in artifacts
-        },
+        "artifact_sha256": {str(row["seed"]): row["sha256"] for row in artifacts},
         "formal_status": M31_VERDICT,
         "formal_m3_pass": False,
         "m4_authorized": False,
@@ -2866,12 +2909,8 @@ def compile_non_release_hil_prototype_for_e84(
         compiled_matches = list(
             (member_directory / "model_gen_dir").glob("*_vela_int8x8.tflite")
         )
-        info_matches = list(
-            (member_directory / "info").glob("*_vela_int8x8.txt")
-        )
-        metrics_matches = list(
-            (member_directory / "info").glob("*_model_metrics.json")
-        )
+        info_matches = list((member_directory / "info").glob("*_vela_int8x8.txt"))
+        metrics_matches = list((member_directory / "info").glob("*_model_metrics.json"))
         _require(
             len(compiled_matches) == len(info_matches) == len(metrics_matches) == 1,
             f"unexpected ML CoreTools output set for seed {seed}",
@@ -2928,15 +2967,11 @@ def compile_non_release_hil_prototype_for_e84(
         "formal_m3_pass": False,
         "numerical_contract_pass": False,
         "toolchain": {
-            "machine_learning_pack_version": settings[
-                "machine_learning_pack_version"
-            ],
+            "machine_learning_pack_version": settings["machine_learning_pack_version"],
             "machine_learning_pack_artifact_uuid": settings[
                 "machine_learning_pack_artifact_uuid"
             ],
-            "machine_learning_pack_sha256": settings[
-                "machine_learning_pack_sha256"
-            ],
+            "machine_learning_pack_sha256": settings["machine_learning_pack_sha256"],
             "ml_coretools_version": settings["ml_coretools_version"],
             "vela_version": settings["vela_version"],
             "version_output": version_run.stdout.strip(),
@@ -2961,13 +2996,9 @@ def compile_non_release_hil_prototype_for_e84(
                 int(member["compiled_model"]["bytes"]) for member in members
             ),
             "command_stream_bytes": integer_sum("command_stream_bytes"),
-            "constant_flash_tensor_bytes": integer_sum(
-                "constant_flash_tensor_bytes"
-            ),
+            "constant_flash_tensor_bytes": integer_sum("constant_flash_tensor_bytes"),
             "original_weights_kib": round(float_sum("original_weights_kib"), 2),
-            "npu_encoded_weights_kib": round(
-                float_sum("npu_encoded_weights_kib"), 2
-            ),
+            "npu_encoded_weights_kib": round(float_sum("npu_encoded_weights_kib"), 2),
             "macs": integer_sum("macs_per_inference"),
             "npu_cycles": integer_sum("npu_cycles"),
             "total_cycles": integer_sum("total_cycles"),
@@ -2997,3 +3028,114 @@ def compile_non_release_hil_prototype_for_e84(
     )
     result["report_path"] = str(report_path)
     return result
+
+
+def _c_float_array(name: str, values: np.ndarray) -> str:
+    encoded = ",\n    ".join(float(np.float32(value)).hex() + "f" for value in values)
+    return f"const float {name}[80] = {{\n    {encoded}\n}};\n"
+
+
+def stage_e84_firmware_assets(
+    repository_root: Path,
+    config_path: Path = DEFAULT_CONFIG,
+) -> dict[str, object]:
+    """Stage checksum-verified generated models and normalizer for the build."""
+    root = repository_root.resolve()
+    bundle, config, _, _ = validate_reference_bundle(root, config_path)
+    prototype = config.get("non_release_hil_prototype")
+    target = config.get("target_vela")
+    firmware = config.get("firmware")
+    _require(
+        isinstance(prototype, dict)
+        and isinstance(target, dict)
+        and isinstance(firmware, dict),
+        "firmware staging configuration is missing",
+    )
+    report_path = _resolve_output(root, str(target["report_path"]))
+    _require(report_path.is_file(), "run compile-target-vela before staging firmware")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    _require(
+        report.get("status") == "E84_TARGET_VELA_COMPILATION_PASS"
+        and report.get("role") == PROTOTYPE_ROLE
+        and report.get("formal_m3_pass") is False
+        and report.get("numerical_contract_pass") is False,
+        "target Vela evidence or prototype boundary changed",
+    )
+    output = _resolve_output(root, str(firmware["generated_asset_directory"]))
+    model_output = output / "mtb_ml_models"
+    if output.exists():
+        shutil.rmtree(output)
+    model_output.mkdir(parents=True)
+
+    staged: list[dict[str, object]] = []
+    vela_root = _resolve_output(root, str(target["output_directory"]))
+    for member in report["members"]:
+        seed = int(member["seed"])
+        prefix = f"FASTREFLEX_SEED{seed}_tflm_model_int8x8"
+        source_directory = vela_root / f"member_seed{seed}" / "mtb_ml_models"
+        binary = source_directory / f"{prefix}.bin"
+        source_c = source_directory / f"{prefix}.c"
+        source_h = source_directory / f"{prefix}.h"
+        expected_hash = str(member["compiled_model"]["sha256"])
+        _require(
+            binary.is_file()
+            and source_c.is_file()
+            and source_h.is_file()
+            and sha256_file(binary) == expected_hash,
+            f"generated firmware model identity changed: {seed}",
+        )
+        destination_c = model_output / source_c.name
+        destination_h = model_output / source_h.name
+        shutil.copyfile(source_c, destination_c)
+        shutil.copyfile(source_h, destination_h)
+        staged.append(
+            {
+                "seed": seed,
+                "compiled_tflite_sha256": expected_hash,
+                "compiled_tflite_bytes": binary.stat().st_size,
+                "c_sha256": sha256_file(destination_c),
+                "h_sha256": sha256_file(destination_h),
+            }
+        )
+
+    mean, std = load_normalizer(bundle)
+    normalizer_h = model_output / "fastreflex_normalizer.h"
+    normalizer_c = model_output / "fastreflex_normalizer.c"
+    normalizer_h.write_text(
+        "#ifndef FASTREFLEX_NORMALIZER_H\n"
+        "#define FASTREFLEX_NORMALIZER_H\n\n"
+        "extern const float fastreflex_normalizer_mean[80];\n"
+        "extern const float fastreflex_normalizer_std[80];\n\n"
+        "#endif\n",
+        encoding="utf-8",
+    )
+    normalizer_c.write_text(
+        '#include "fastreflex_normalizer.h"\n\n'
+        + _c_float_array("fastreflex_normalizer_mean", mean)
+        + "\n"
+        + _c_float_array("fastreflex_normalizer_std", std),
+        encoding="utf-8",
+    )
+    manifest = {
+        "schema_version": 1,
+        "role": PROTOTYPE_ROLE,
+        "formal_status": M31_VERDICT,
+        "formal_m3_pass": False,
+        "numerical_contract_pass": False,
+        "source_vela_report": str(report_path.relative_to(root)),
+        "source_vela_report_sha256": sha256_file(report_path),
+        "normalizer_source_sha256": config["accepted_identity"]["normalizer_sha256"],
+        "normalizer_c_sha256": sha256_file(normalizer_c),
+        "members": staged,
+    }
+    manifest_path = output / "asset_manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return {
+        "status": "E84_FIRMWARE_ASSETS_STAGED",
+        "directory": str(output),
+        "manifest": str(manifest_path),
+        "manifest_sha256": sha256_file(manifest_path),
+        "members": staged,
+    }

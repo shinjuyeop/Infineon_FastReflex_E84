@@ -96,6 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="override generated output root (primarily for isolated verification)",
     )
+    stage = subparsers.add_parser(
+        "stage-firmware-assets",
+        help="stage pinned target-Vela models and normalizer for ModusToolbox",
+    )
+    stage.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
     return parser
 
 
@@ -143,9 +152,7 @@ def main() -> int:
         if args.command == "freeze-prototype":
             from fastreflex_e84.conversion import freeze_non_release_hil_prototype
 
-            result = freeze_non_release_hil_prototype(
-                REPOSITORY_ROOT, args.config
-            )
+            result = freeze_non_release_hil_prototype(REPOSITORY_ROOT, args.config)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.command == "compile-target-vela":
@@ -159,6 +166,12 @@ def main() -> int:
                 args.config,
                 args.output_root,
             )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.command == "stage-firmware-assets":
+            from fastreflex_e84.conversion import stage_e84_firmware_assets
+
+            result = stage_e84_firmware_assets(REPOSITORY_ROOT, args.config)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
     except (ValueError, RuntimeError) as exc:
