@@ -67,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="override generated output root (primarily for isolated verification)",
     )
+    freeze = subparsers.add_parser(
+        "freeze-prototype",
+        help="freeze the reproduced non-release 16-channel HIL prototype",
+    )
+    freeze.add_argument(
+        "--config",
+        type=Path,
+        default=REPOSITORY_ROOT / "configs/deployment/reference_model.yaml",
+    )
     return parser
 
 
@@ -111,6 +120,14 @@ def main() -> int:
             return (
                 0 if result["boundary"]["existing_m3_numerical_contract_passed"] else 2
             )
+        if args.command == "freeze-prototype":
+            from fastreflex_e84.conversion import freeze_non_release_hil_prototype
+
+            result = freeze_non_release_hil_prototype(
+                REPOSITORY_ROOT, args.config
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))
     raise AssertionError("unreachable command")

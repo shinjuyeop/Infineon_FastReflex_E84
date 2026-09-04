@@ -24,6 +24,7 @@ M2_VERDICT = "FLOAT_EXPORT_PARITY_FAIL_INT8_U55_OPERATOR_MAPPING_PASS"
 M21_VERDICT = "FLOAT_EXPORT_NUMERICAL_CONTRACT_RESOLVED"
 M3_VERDICT = "INT8_DECISION_PARITY_PASS_NUMERICAL_CONTRACT_FAIL"
 M31_VERDICT = "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL"
+PROTOTYPE_ROLE = "NON_RELEASE_HIL_PATH_PROTOTYPE"
 STATE_KEYS = (
     "gru.weight_ih_l0",
     "gru.weight_hh_l0",
@@ -2439,3 +2440,235 @@ def evaluate_int8_recovery(
     )
     result["result_path"] = str(result_path)
     return result
+
+
+def freeze_non_release_hil_prototype(
+    repository_root: Path,
+    config_path: Path = DEFAULT_CONFIG,
+) -> dict[str, object]:
+    """Freeze the reproduced M3.1 selection without changing formal status."""
+    root = repository_root.resolve()
+    _, config, model_manifest, _ = validate_reference_bundle(root, config_path)
+    settings = config.get("non_release_hil_prototype")
+    recovery_settings = config.get("int8_recovery")
+    formal_settings = config.get("formal_int8")
+    _require(
+        isinstance(settings, dict)
+        and isinstance(recovery_settings, dict)
+        and isinstance(formal_settings, dict),
+        "non-release prototype config is missing",
+    )
+    _require(settings.get("role") == PROTOTYPE_ROLE, "prototype role changed")
+    flags = settings.get("flags")
+    _require(
+        isinstance(flags, dict)
+        and flags
+        == {
+            "formal_m3_pass": False,
+            "numerical_contract_pass": False,
+            "scientific_release": False,
+            "real_robot_supported": False,
+            "production_ready": False,
+            "safety_certified": False,
+            "hil_path_only": True,
+        },
+        "prototype safety boundary changed",
+    )
+
+    recovery_path = _resolve_output(root, str(settings["recovery_result_path"]))
+    _require(recovery_path.is_file(), "run evaluate-int8-recovery before freeze")
+    recovery = json.loads(recovery_path.read_text(encoding="utf-8"))
+    _require(recovery.get("status") == M31_VERDICT, "M3.1 verdict changed")
+    _require(
+        recovery.get("boundary", {}).get("existing_m3_numerical_contract_passed")
+        is False
+        and recovery.get("boundary", {}).get("m4_authorized") is False,
+        "formal M3/M4 boundary changed",
+    )
+    selection = recovery.get("selection", {})
+    _require(
+        selection.get("name") == settings["selected_representation"]
+        and selection.get("projection_block_width")
+        == settings["projection_block_width"]
+        and selection.get("byte_deterministic_all_members") is True
+        and selection.get("golden_used") is False
+        and selection.get("weights_or_semantics_changed") is False
+        and selection.get("contract", {}).get("status") == "FAIL"
+        and selection.get("contract", {}).get("discrete_status") == "PASS",
+        "reproduced M3.1 selection does not match the prototype contract",
+    )
+    _require(
+        recovery.get("calibration", {}).get("symmetric_absolute_percentile")
+        == 99.0
+        and recovery.get("calibration", {}).get("clipping_bound")
+        == 4.132843623161313
+        and recovery.get("calibration", {}).get("policy_changed_from_formal_m3")
+        is False,
+        "prototype calibration policy changed",
+    )
+
+    candidate = recovery.get("ptq_candidates", {}).get(
+        settings["selected_representation"], {}
+    )
+    golden_evaluation = candidate.get("golden_evaluation", {})
+    members = golden_evaluation.get("members", [])
+    seeds = [int(value) for value in settings["runtime"]["ensemble_order"]]
+    _require(seeds == list(MEMBER_SEEDS), "prototype ensemble order changed")
+    _require(
+        [int(member["seed"]) for member in members] == seeds,
+        "recovery evidence member order changed",
+    )
+    expected_hashes = settings["source_artifact_sha256"]
+    expected_graph = settings["graph"]
+    expected_runtime = settings["runtime"]
+    source_directory = _resolve_output(root, str(settings["source_directory"]))
+    prototype_directory = _resolve_output(root, str(settings["directory"]))
+    model_directory = prototype_directory / "models"
+    model_directory.mkdir(parents=True, exist_ok=True)
+    artifacts: list[dict[str, object]] = []
+    for seed, evidence in zip(seeds, members):
+        filename = f"member_seed{seed}_int8_probability.tflite"
+        source = source_directory / filename
+        expected_hash = str(expected_hashes[str(seed)])
+        _require(
+            source.is_file() and sha256_file(source) == expected_hash,
+            f"selected M3.1 artifact identity changed: {seed}",
+        )
+        graph = inspect_tflite(source)
+        _require(
+            graph["operator_count"] == expected_graph["operator_count"]
+            and graph["operators"] == expected_graph["operators"],
+            f"prototype graph semantics changed: {seed}",
+        )
+        input_record = graph["inputs"][0]
+        output_record = graph["outputs"][0]
+        _require(
+            input_record["shape"] == expected_runtime["input_shape"]
+            and input_record["dtype"] == expected_runtime["input_dtype"]
+            and input_record["quantization"]
+            == {
+                "scale": expected_runtime["input_scale"],
+                "zero_point": expected_runtime["input_zero_point"],
+            }
+            and output_record["shape"] == expected_runtime["output_shape"]
+            and output_record["dtype"] == expected_runtime["output_dtype"]
+            and output_record["quantization"]
+            == {
+                "scale": expected_runtime["output_scale"],
+                "zero_point": expected_runtime["output_zero_point"],
+            },
+            f"prototype TFLite IO contract changed: {seed}",
+        )
+        _require(
+            evidence["sha256"] == expected_hash
+            and evidence["repeated_conversion_byte_identical"] is True,
+            f"M3.1 reproducibility evidence changed: {seed}",
+        )
+        destination = model_directory / filename
+        shutil.copyfile(source, destination)
+        _require(
+            sha256_file(destination) == expected_hash,
+            f"prototype freeze copy failed checksum verification: {seed}",
+        )
+        artifacts.append(
+            {
+                "seed": seed,
+                "path": str(destination.relative_to(root)),
+                "bytes": destination.stat().st_size,
+                "sha256": expected_hash,
+            }
+        )
+
+    member_parity = golden_evaluation["parity"][
+        "member_hazard_probability_by_seed"
+    ]
+    for seed in seeds:
+        _require(
+            member_parity[str(seed)]["maximum_absolute_error"]
+            == settings["expected_member_maximum_absolute_error"][str(seed)],
+            f"prototype member metric changed: {seed}",
+        )
+    ensemble_parity = golden_evaluation["parity"][
+        "ensemble_hazard_probability"
+    ]
+    for name, expected in settings["expected_ensemble"].items():
+        _require(ensemble_parity[name] == expected, f"ensemble metric changed: {name}")
+    exact_parity = {
+        name: bool(golden_evaluation["parity"][name]["exact"])
+        for name in (
+            "threshold_crossing",
+            "consecutive_threshold_count",
+            "reflex_required",
+            "reflex_onset",
+        )
+    }
+    _require(all(exact_parity.values()), "prototype discrete parity changed")
+
+    accepted = config["accepted_identity"]
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "prototype_id": settings["prototype_id"],
+        "role": PROTOTYPE_ROLE,
+        **flags,
+        "formal_status": M31_VERDICT,
+        "m4_authorized": False,
+        "scientific_verdict": accepted["scientific_verdict"],
+        "simulation_status": accepted["simulation_status"],
+        "reference": {
+            "release_id": accepted["release_id"],
+            "research_repository": accepted["research_repository"],
+            "research_release_commit": accepted["research_release_commit"],
+            "release_manifest_sha256": accepted["release_manifest_sha256"],
+            "architecture_sha256": accepted["architecture_sha256"],
+            "feature_schema_sha256": accepted["feature_schema_sha256"],
+            "normalizer_sha256": accepted["normalizer_sha256"],
+            "calibration_sha256": accepted["int8_calibration_sha256"],
+            "checkpoint_sha256": accepted["checkpoint_sha256"],
+        },
+        "reproduction": {
+            "m31_evidence_path": str(recovery_path.relative_to(root)),
+            "m31_evidence_sha256": sha256_file(recovery_path),
+            "selected_representation": settings["selected_representation"],
+            "projection_block_width": settings["projection_block_width"],
+            "calibration_source": "frozen exact effective TRAIN handoff",
+            "calibration_window_count": 2597,
+            "symmetric_absolute_percentile": 99.0,
+            "clipping_bound": 4.132843623161313,
+            "golden_used_for_selection": False,
+            "byte_deterministic_all_members": True,
+            "weights_or_semantics_changed": False,
+        },
+        "runtime_contract": expected_runtime,
+        "graph": expected_graph,
+        "artifacts": artifacts,
+        "canonical_golden_parity": {
+            "member_maximum_absolute_error": {
+                str(seed): member_parity[str(seed)]["maximum_absolute_error"]
+                for seed in seeds
+            },
+            "ensemble": settings["expected_ensemble"],
+            "exact": exact_parity,
+            "numerical_contract": "FAIL",
+            "failure": "member_probability_maximum_absolute_error_gt_0.10",
+        },
+        "prohibited_source": "DEPLOYMENT_AWARE_QAT_TRAIN_ACCEPTANCE_FAIL",
+    }
+    manifest_path = prototype_directory / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    report_path = root / "reports/int8_16ch_hil_prototype_freeze.json"
+    report_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return {
+        "status": "NON_RELEASE_HIL_PATH_PROTOTYPE_FROZEN",
+        "prototype_manifest": str(manifest_path),
+        "prototype_manifest_sha256": sha256_file(manifest_path),
+        "artifact_sha256": {
+            str(row["seed"]): row["sha256"] for row in artifacts
+        },
+        "formal_status": M31_VERDICT,
+        "formal_m3_pass": False,
+        "m4_authorized": False,
+    }

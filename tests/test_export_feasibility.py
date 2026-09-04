@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastreflex_e84.conversion import (
@@ -10,6 +11,7 @@ from fastreflex_e84.conversion import (
     evaluate_int8_recovery,
     evaluate_int8_quantization,
 )
+from fastreflex_e84.handoff import sha256_file
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -170,3 +172,50 @@ def test_int8_recurrent_localization_and_ptq_recovery_remain_fail_closed(
     assert result["root_cause_assessment"]["research_intervention_required"]
     assert result["boundary"]["m4_authorized"] is False
     assert result["boundary"]["board_state_modified"] is False
+
+
+def test_frozen_hil_prototype_identity_and_formal_separation() -> None:
+    prototype = (
+        ROOT
+        / "model/prototype"
+        / "model_v2_anchor_refined_gru20_int8_16ch_hil_prototype"
+    )
+    manifest = json.loads(
+        (prototype / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["role"] == "NON_RELEASE_HIL_PATH_PROTOTYPE"
+    assert manifest["formal_status"] == M31_VERDICT
+    assert manifest["formal_m3_pass"] is False
+    assert manifest["numerical_contract_pass"] is False
+    assert manifest["scientific_release"] is False
+    assert manifest["real_robot_supported"] is False
+    assert manifest["production_ready"] is False
+    assert manifest["safety_certified"] is False
+    assert manifest["hil_path_only"] is True
+    assert manifest["m4_authorized"] is False
+    assert manifest["runtime_contract"]["ensemble_order"] == [
+        20260828,
+        20260829,
+        20260830,
+    ]
+    assert manifest["runtime_contract"]["input_shape"] == [1, 20, 80]
+    assert manifest["canonical_golden_parity"]["numerical_contract"] == "FAIL"
+    assert all(manifest["canonical_golden_parity"]["exact"].values())
+    for artifact in manifest["artifacts"]:
+        path = ROOT / artifact["path"]
+        assert path.is_file()
+        assert path.parent == prototype / "models"
+        assert sha256_file(path) == artifact["sha256"]
+
+    formal_hashes = {
+        20260828: "d6726d65a6bb63ca564b57b528112ab6e6db5a0e1b77b87cdae08c4ef363aec1",
+        20260829: "c793df173ecf73c80f05bae6dbb2061a552f2e4448fff02025892c547a19d3c3",
+        20260830: "f4538854a092d4d12a8909f06d2a01156c8097f54c4518b31d9df8a82ad1a854",
+    }
+    for seed, expected in formal_hashes.items():
+        path = (
+            ROOT
+            / "model/quantized/formal"
+            / f"member_seed{seed}_int8_probability.tflite"
+        )
+        assert sha256_file(path) == expected

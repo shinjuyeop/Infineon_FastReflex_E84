@@ -1,0 +1,125 @@
+{
+  "artifacts": [
+    {
+      "bytes": 165064,
+      "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260828_int8_probability.tflite",
+      "seed": 20260828,
+      "sha256": "04e1b5796fa0cac9240086230ee0d4389bbca89c133b9238758f1558dd266404"
+    },
+    {
+      "bytes": 165280,
+      "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260829_int8_probability.tflite",
+      "seed": 20260829,
+      "sha256": "bda9b7f7776a981e0f0529052997fc5b4c57fabec2f67f1eec11804cd464a20c"
+    },
+    {
+      "bytes": 165208,
+      "path": "model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype/models/member_seed20260830_int8_probability.tflite",
+      "seed": 20260830,
+      "sha256": "a60c1764a05dd8b8a193a6534729e6a72d45f312f035f537a75cb23217666dc7"
+    }
+  ],
+  "canonical_golden_parity": {
+    "ensemble": {
+      "maximum_absolute_error": 0.08326796442270279,
+      "p95_absolute_error": 0.0407163598574698,
+      "signed_bias": -0.0020546117536040494
+    },
+    "exact": {
+      "consecutive_threshold_count": true,
+      "reflex_onset": true,
+      "reflex_required": true,
+      "threshold_crossing": true
+    },
+    "failure": "member_probability_maximum_absolute_error_gt_0.10",
+    "member_maximum_absolute_error": {
+      "20260828": 0.21895986795425415,
+      "20260829": 0.2613510489463806,
+      "20260830": 0.12862467765808105
+    },
+    "numerical_contract": "FAIL"
+  },
+  "formal_m3_pass": false,
+  "formal_status": "INT8_PTQ_PARTIAL_RECOVERY_NUMERICAL_CONTRACT_FAIL",
+  "graph": {
+    "operator_count": 700,
+    "operators": {
+      "ADD": 160,
+      "CONCATENATION": 20,
+      "FULLY_CONNECTED": 121,
+      "LOGISTIC": 80,
+      "MUL": 80,
+      "SOFTMAX": 1,
+      "STRIDED_SLICE": 158,
+      "SUB": 40,
+      "TANH": 40
+    }
+  },
+  "hil_path_only": true,
+  "m4_authorized": false,
+  "numerical_contract_pass": false,
+  "production_ready": false,
+  "prohibited_source": "DEPLOYMENT_AWARE_QAT_TRAIN_ACCEPTANCE_FAIL",
+  "prototype_id": "model_v2_anchor_refined_gru20_int8_16ch_hil_prototype",
+  "real_robot_supported": false,
+  "reference": {
+    "architecture_sha256": "ae4753699399aa7e4a93639935e085156ef28ed100a77058d7308eb1549aa897",
+    "calibration_sha256": "cd82304d34b2cdc60a0feb3de3e84ca7bc7f45e73223e2df389bd695cddbab5f",
+    "checkpoint_sha256": [
+      "7094a2dca40e8d3c84554619652d69c17920c8e82765460ff8621c13ef494cb9",
+      "3ad298eea4c35eca896afd31f860fd6b44ce35d7d9978e2546bb40b693e62c39",
+      "fe96dfeb8461871044de0f8672190680ce46164a1c28efbe6738d22f9d439bbd"
+    ],
+    "feature_schema_sha256": "fe5b6c1c5eca8207a01c62e156f1fe843f95f0c5001d179a12c4b2b16ddf8adb",
+    "normalizer_sha256": "e0d796e8840e0cd38bc7d0ed222b668187a8a661748cf8506d4141657f88e92a",
+    "release_id": "model_v2_anchor_refined_gru20_20260902",
+    "release_manifest_sha256": "d5d4e7225a35d7547e373b0ac62dbaf552d45c1a3290f214882a032355589dc7",
+    "research_release_commit": "314ded6aa3fdfe8d661d1cc670f1b9f3936084fb",
+    "research_repository": "https://github.com/shinjuyeop/Infineon_FastReflex"
+  },
+  "reproduction": {
+    "byte_deterministic_all_members": true,
+    "calibration_source": "frozen exact effective TRAIN handoff",
+    "calibration_window_count": 2597,
+    "clipping_bound": 4.132843623161313,
+    "golden_used_for_selection": false,
+    "m31_evidence_path": "reports/generated/int8_recurrent_error_localization.json",
+    "m31_evidence_sha256": "091ee0e3e0db234c340c1416691cab222495da6c0b27dc6ca691e660cbf608a8",
+    "projection_block_width": 16,
+    "selected_representation": "two_blocks_per_gate_16",
+    "symmetric_absolute_percentile": 99.0,
+    "weights_or_semantics_changed": false
+  },
+  "role": "NON_RELEASE_HIL_PATH_PROTOTYPE",
+  "runtime_contract": {
+    "ensemble_order": [
+      20260828,
+      20260829,
+      20260830
+    ],
+    "ensemble_reduction": "arithmetic_mean_after_float_dequantization",
+    "input_dtype": "int8",
+    "input_scale": 0.03241445869207382,
+    "input_shape": [
+      1,
+      20,
+      80
+    ],
+    "input_zero_point": 0,
+    "output_convention": "two_class_softmax_hazard_class_index_1",
+    "output_dtype": "int8",
+    "output_scale": 0.00390625,
+    "output_shape": [
+      1,
+      2
+    ],
+    "output_zero_point": -128,
+    "persistence_samples": 5,
+    "threshold": 0.99
+  },
+  "safety_certified": false,
+  "schema_version": 1,
+  "scientific_release": false,
+  "scientific_verdict": "MODEL_V2_GENERALIZATION_HOLDOUT_NOT_SUPPORTED",
+  "simulation_status": "SIMULATION_GENERALIZATION_EVIDENCE_NOT_SUPPORTED"
+}

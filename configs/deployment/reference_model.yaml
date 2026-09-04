@@ -156,3 +156,58 @@ int8_recovery:
         SUB: 80
         TANH: 80
   selected_expected_npu_operators: 472
+
+non_release_hil_prototype:
+  prototype_id: model_v2_anchor_refined_gru20_int8_16ch_hil_prototype
+  role: NON_RELEASE_HIL_PATH_PROTOTYPE
+  directory: model/prototype/model_v2_anchor_refined_gru20_int8_16ch_hil_prototype
+  source_directory: model/quantized/recovery/two_blocks_per_gate_16
+  recovery_result_path: reports/generated/int8_recurrent_error_localization.json
+  selected_representation: two_blocks_per_gate_16
+  projection_block_width: 16
+  source_artifact_sha256:
+    "20260828": 04e1b5796fa0cac9240086230ee0d4389bbca89c133b9238758f1558dd266404
+    "20260829": bda9b7f7776a981e0f0529052997fc5b4c57fabec2f67f1eec11804cd464a20c
+    "20260830": a60c1764a05dd8b8a193a6534729e6a72d45f312f035f537a75cb23217666dc7
+  expected_member_maximum_absolute_error:
+    "20260828": 0.21895986795425415
+    "20260829": 0.2613510489463806
+    "20260830": 0.12862467765808105
+  expected_ensemble:
+    maximum_absolute_error: 0.08326796442270279
+    p95_absolute_error: 0.0407163598574698
+    signed_bias: -0.0020546117536040494
+  runtime:
+    input_shape: [1, 20, 80]
+    input_dtype: int8
+    input_scale: 0.03241445869207382
+    input_zero_point: 0
+    output_shape: [1, 2]
+    output_dtype: int8
+    output_scale: 0.00390625
+    output_zero_point: -128
+    output_convention: two_class_softmax_hazard_class_index_1
+    ensemble_order: [20260828, 20260829, 20260830]
+    ensemble_reduction: arithmetic_mean_after_float_dequantization
+    threshold: 0.99
+    persistence_samples: 5
+  graph:
+    operator_count: 700
+    operators:
+      ADD: 160
+      CONCATENATION: 20
+      FULLY_CONNECTED: 121
+      LOGISTIC: 80
+      MUL: 80
+      SOFTMAX: 1
+      STRIDED_SLICE: 158
+      SUB: 40
+      TANH: 40
+  flags:
+    formal_m3_pass: false
+    numerical_contract_pass: false
+    scientific_release: false
+    real_robot_supported: false
+    production_ready: false
+    safety_certified: false
+    hil_path_only: true
