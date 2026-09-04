@@ -21,6 +21,7 @@ m2 = [
   "tensorflow>=2.19,<2.20",
 ]
 test = ["pytest>=6.2"]
+hil = ["pyserial>=3.5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
